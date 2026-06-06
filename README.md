@@ -8,7 +8,7 @@
 
 </div>
 
-> **Capture without leaving the page.** Pick an element, drag a region, grab the viewport, or stitch a full-page shot. Copy or download from the selection toolbar.
+> **Capture without leaving the page.** Pick one or more elements, drag a region, grab the viewport, or stitch a full-page shot. Copy or download from the selection toolbar.
 
 Lasso is a lightweight browser extension for screenshot workflows that need more control than a full-tab capture. It runs entirely in your browser. No accounts, no uploads, no backend.
 
@@ -42,19 +42,19 @@ Lasso is a lightweight browser extension for screenshot workflows that need more
 
 **Option B.** Click the Lasso toolbar icon and choose a mode from the popup.
 
-In preview mode you can hover to pick an element, drag to draw a region, or use **Save visible** / **Save full page** in the top-right panel.
+In preview mode you can hover to pick an element, **Shift+click** to add more elements into one combined selection, drag to draw a region, or use **Save visible** / **Save full page** in the top-right panel.
 
 ## Capture modes
 
 | Mode | How to start | What it does |
 | --- | --- | --- |
-| **Preview** | `Ctrl+Shift+S` | Dimmed overlay. Pick, freestyle draw, visible, or full page. |
+| **Preview** | `Ctrl+Shift+S` | Dimmed overlay. Pick (Shift+click to add elements), freestyle draw, visible, or full page. |
 | **Visible** | Popup → Visible | Locks the current viewport. Resize, then copy or download. |
 | **Full page** | Popup → Full page | Scrolls and stitches the page. Optional crop before export. |
-| **Pick** | Popup → Pick | Hover elements, click to lock selection. |
+| **Pick** | Popup → Pick | Hover elements, click to lock. Shift+click to add more into one bounding box. |
 | **Freestyle** | Popup → Freestyle | Drag a custom box on the page. |
 
-After a selection is locked, use the toolbar to **copy** (`Ctrl+C`) or **download** (`Ctrl+S`). Press `Esc` to cancel.
+After a selection is locked, use the toolbar to **copy** (`Ctrl+C`) or **download** (`Ctrl+S`). Press `Esc` to cancel. Multi-element picks must fit in one viewport shot; if the combined box is too large, Lasso shows an error instead of cropping silently.
 
 ## Keyboard shortcuts
 
