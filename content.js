@@ -62,8 +62,10 @@
         break;
 
       case LassoMsg.GET_CAPTURE_PARAMS:
-        sendResponse(window.LassoSelection.getCaptureParams());
-        break;
+        window.LassoSelection.getCaptureParams()
+          .then(sendResponse)
+          .catch(() => sendResponse(null));
+        return true;
 
       case LassoMsg.CROP:
         window.LassoCapture.handleCropResult(msg)

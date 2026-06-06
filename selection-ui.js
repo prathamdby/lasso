@@ -34,6 +34,7 @@
     pickManualDocRect: null,
     pickPreviewEl: null,
     pickAddInFlight: false,
+    pickAddPromise: null,
     draw: { pending: null, active: false, suppressClick: false },
     dom: {
       overlay: null,
@@ -156,6 +157,7 @@
     sel.pickManualDocRect = null;
     sel.pickPreviewEl = null;
     sel.pickAddInFlight = false;
+    sel.pickAddPromise = null;
     sel.draw = { pending: null, active: false, suppressClick: false };
 
     buildSelectionChrome();
@@ -354,14 +356,14 @@
     if (e.key.toLowerCase() === "c") {
       e.preventDefault();
       e.stopPropagation();
-      executeCapture("copy");
+      void executeCapture("copy");
       return;
     }
 
     if (e.key.toLowerCase() === "s") {
       e.preventDefault();
       e.stopPropagation();
-      executeCapture("download");
+      void executeCapture("download");
     }
   }
 
@@ -513,6 +515,34 @@
     );
   }
 
+  function pickUnionViewportRect(
+    scrollX = window.scrollX,
+    scrollY = window.scrollY,
+  ) {
+    const docUnion = unionRects(pickRectsForUnion());
+    if (!docUnion) return null;
+    return documentRectToViewport(docUnion, scrollX, scrollY);
+  }
+
+  function pickCropWouldClip(
+    scrollX = window.scrollX,
+    scrollY = window.scrollY,
+  ) {
+    const view = pickUnionViewportRect(scrollX, scrollY);
+    if (!view) return false;
+    const normalized = normalizeRect(view);
+    return (
+      normalized.x !== view.x ||
+      normalized.y !== view.y ||
+      normalized.width !== view.width ||
+      normalized.height !== view.height
+    );
+  }
+
+  async function waitForPickAddIdle() {
+    if (sel.pickAddPromise) await sel.pickAddPromise;
+  }
+
   function recomputePickRect(scrollX = window.scrollX, scrollY = window.scrollY) {
     const docUnion = unionRects(pickRectsForUnion());
     if (!docUnion) return;
@@ -564,14 +594,18 @@
   }
 
   async function addPickElement(el) {
-    if (sel.pickAddInFlight || sel.pickedItems.some((item) => item.el === el)) {
-      return;
+    if (sel.pickedItems.some((item) => item.el === el)) return;
+    if (sel.pickAddInFlight) {
+      await waitForPickAddIdle();
+      if (sel.pickedItems.some((item) => item.el === el)) return;
     }
 
-    sel.pickAddInFlight = true;
-    try {
+    const work = (async () => {
       const hasExistingPick =
-        sel.pickedItems.length > 0 || !!sel.pickAnchorDocRect || !!sel.rect;
+        sel.pickedItems.length > 0 ||
+        !!sel.pickAnchorDocRect ||
+        !!sel.pickManualDocRect ||
+        !!sel.rect;
       if (hasExistingPick) {
         await ensurePickUnionInView(el);
       } else {
@@ -586,8 +620,15 @@
       sel.userResized = false;
       sel.pickPreviewEl = null;
       recomputePickRect();
+    })();
+
+    sel.pickAddInFlight = true;
+    sel.pickAddPromise = work;
+    try {
+      await work;
     } finally {
       sel.pickAddInFlight = false;
+      if (sel.pickAddPromise === work) sel.pickAddPromise = null;
     }
   }
 
@@ -904,12 +945,20 @@
     }
 
     if (action === "copy" || action === "download") {
-      executeCapture(action);
+      void executeCapture(action);
     }
   }
 
-  function executeCapture(action) {
+  async function executeCapture(action) {
+    await waitForPickAddIdle();
     if (!sel.rect) return;
+
+    if (sel.mode === "pick" && pickCropWouldClip()) {
+      showNotice(
+        "Selection is too large for one screenshot. Pick elements closer together.",
+      );
+      return;
+    }
 
     sel.captureInProgress = true;
     sel.captureScrollY = window.scrollY;
@@ -971,6 +1020,7 @@
     sel.pickManualDocRect = null;
     sel.pickPreviewEl = null;
     sel.pickAddInFlight = false;
+    sel.pickAddPromise = null;
     sel.draw = { pending: null, active: false, suppressClick: false };
   }
 
@@ -1020,9 +1070,13 @@
 
   window.LassoSelection = {
     startCaptureUI,
-    getCaptureParams: () => {
+    getCaptureParams: async () => {
+      await waitForPickAddIdle();
       if (!sel.userResized && sel.pickedItems.length) {
         recomputePickRect(window.scrollX, sel.captureScrollY);
+      }
+      if (sel.mode === "pick" && pickCropWouldClip(window.scrollX, sel.captureScrollY)) {
+        return null;
       }
       return rectForCapture(sel);
     },
