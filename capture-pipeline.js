@@ -99,14 +99,8 @@
       canvas.height = totalHeight * dpr;
       const ctx = canvas.getContext("2d");
 
-      const slices = await Promise.all(
-        captures.map(async ({ dataURL, y }) => ({
-          img: await loadImage(dataURL),
-          y,
-        })),
-      );
-
-      for (const { img, y } of slices) {
+      for (const { dataURL, y } of captures) {
+        const img = await loadImage(dataURL);
         const remainder = totalHeight - y;
         const sliceHeight = Math.min(viewportHeight, remainder);
         const srcHeight = sliceHeight * dpr;
