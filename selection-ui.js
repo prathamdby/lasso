@@ -502,19 +502,58 @@
     }
   }
 
+  async function ensurePickUnionInView(extraEl = null) {
+    const rects = sel.pickedElements.map(rectFromElement);
+    if (!rects.length && sel.rect) rects.push(sel.rect);
+    if (extraEl) rects.push(rectFromElement(extraEl));
+    if (!rects.length) return;
+
+    const union = unionRects(rects);
+    if (!union) return;
+
+    const vh = window.innerHeight;
+    const vw = window.innerWidth;
+    const inView =
+      union.y >= 0 &&
+      union.x >= 0 &&
+      union.y + union.height <= vh &&
+      union.x + union.width <= vw;
+    if (inView) return;
+
+    let nextX = window.scrollX;
+    let nextY = window.scrollY;
+    if (union.y < 0) nextY += union.y;
+    if (union.x < 0) nextX += union.x;
+    if (union.y + union.height > vh) nextY += union.y + union.height - vh;
+    if (union.x + union.width > vw) nextX += union.x + union.width - vw;
+
+    window.scrollTo({ left: nextX, top: nextY });
+    await new Promise((r) => setTimeout(r, PICK_SCROLL_WAIT_MS));
+  }
+
   async function addPickElement(el) {
     if (sel.pickedElements.includes(el)) return;
 
-    await ensureElementInView(el);
-
-    // Manual resize clears picks; Shift+click starts a new element-backed selection.
-    if (sel.userResized) {
-      sel.userResized = false;
-      sel.pickedElements = [el];
+    const hasExistingPick =
+      sel.pickedElements.length > 0 || (sel.userResized && sel.rect);
+    if (hasExistingPick) {
+      await ensurePickUnionInView(el);
     } else {
-      sel.pickedElements.push(el);
+      await ensureElementInView(el);
     }
 
+    if (sel.userResized && sel.rect) {
+      sel.userResized = false;
+      sel.pickedElements = [el];
+      sel.pickPreviewEl = null;
+      const union = unionRects([sel.rect, rectFromElement(el)]);
+      if (!union) return;
+      sel.rect = normalizeRect(union);
+      renderSelection(sel.rect, "locked");
+      return;
+    }
+
+    sel.pickedElements.push(el);
     sel.pickPreviewEl = null;
     recomputePickRect();
   }
@@ -602,7 +641,7 @@
   }
 
   function onHoverMove(e) {
-    if (!sel.active) return;
+    if (!sel.active || sel.captureInProgress) return;
     if (sel.phase === "pick-add") return onPickAddMove(e);
     if (sel.phase !== "hover") return;
 
@@ -651,7 +690,7 @@
   }
 
   async function onHoverClick(e) {
-    if (!sel.active || sel.mode === "freestyle") return;
+    if (!sel.active || sel.captureInProgress || sel.mode === "freestyle") return;
     if (isLassoChrome(e.target)) return;
 
     if (sel.draw.suppressClick) {
@@ -939,7 +978,12 @@
 
   window.LassoSelection = {
     startCaptureUI,
-    getCaptureParams: () => rectForCapture(sel),
+    getCaptureParams: () => {
+      if (!sel.userResized && sel.pickedElements.length) {
+        recomputePickRect();
+      }
+      return rectForCapture(sel);
+    },
     hideCaptureChrome,
     cleanupSelection,
     onCaptureCancelled,
