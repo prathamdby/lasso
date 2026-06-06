@@ -31,6 +31,7 @@
     hoverTarget: null,
     pickedItems: [],
     pickAnchorDocRect: null,
+    pickManualDocRect: null,
     pickPreviewEl: null,
     pickAddInFlight: false,
     draw: { pending: null, active: false, suppressClick: false },
@@ -152,6 +153,7 @@
     sel.hoverTarget = null;
     sel.pickedItems = [];
     sel.pickAnchorDocRect = null;
+    sel.pickManualDocRect = null;
     sel.pickPreviewEl = null;
     sel.pickAddInFlight = false;
     sel.draw = { pending: null, active: false, suppressClick: false };
@@ -493,6 +495,7 @@
   function pickRectsForUnion(extraEl = null) {
     const rects = sel.pickedItems.map((item) => item.rect);
     if (sel.pickAnchorDocRect) rects.push(sel.pickAnchorDocRect);
+    if (sel.pickManualDocRect) rects.push(sel.pickManualDocRect);
     else if (!sel.pickedItems.length && sel.rect) rects.push(rectToDocument(sel.rect));
     if (extraEl) rects.push(rectFromElementDocument(extraEl));
     return rects;
@@ -573,6 +576,10 @@
         await ensurePickUnionInView(el);
       } else {
         await ensureElementInView(el);
+      }
+
+      if (sel.userResized && sel.rect) {
+        sel.pickManualDocRect = rectToDocument(sel.rect);
       }
 
       sel.pickedItems.push(snapshotPickItem(el));
@@ -750,6 +757,7 @@
     sel.userResized = false;
     sel.pickedItems = element ? [snapshotPickItem(element)] : [];
     sel.pickAnchorDocRect = element ? null : rectToDocument(normalizeRect(rect));
+    sel.pickManualDocRect = null;
     sel.pickPreviewEl = null;
     sel.rect = normalizeRect(rect);
     sel.draw = { pending: null, active: false, suppressClick: false };
@@ -845,6 +853,7 @@
     selectionEl().classList.add("lasso-resizing");
     sel.pickedItems = [];
     sel.pickAnchorDocRect = null;
+    sel.pickManualDocRect = null;
     sel.userResized = true;
 
     const startX = e.clientX;
@@ -959,6 +968,7 @@
     sel.hoverTarget = null;
     sel.pickedItems = [];
     sel.pickAnchorDocRect = null;
+    sel.pickManualDocRect = null;
     sel.pickPreviewEl = null;
     sel.pickAddInFlight = false;
     sel.draw = { pending: null, active: false, suppressClick: false };
