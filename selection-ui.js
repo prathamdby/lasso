@@ -659,8 +659,6 @@
   }
 
   async function onPickAddClick(e) {
-    if (sel.pickAddInFlight) return;
-
     e.preventDefault();
     e.stopPropagation();
     e.stopImmediatePropagation();
