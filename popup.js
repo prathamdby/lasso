@@ -13,6 +13,10 @@ document
 
 function capture(mode) {
   const hideFixed = document.getElementById("hide-fixed").checked;
-  chrome.runtime.sendMessage({ type: "capture", mode, hideFixed });
+  chrome.runtime.sendMessage({
+    type: LassoMsg.CAPTURE,
+    mode,
+    hideFixed,
+  });
   window.close();
 }

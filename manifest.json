@@ -27,7 +27,14 @@
     {
       "matches": ["<all_urls>"],
       "css": ["content.css"],
-      "js": ["content.js", "hotkey.js"],
+      "js": [
+        "messages.js",
+        "fixed-elements.js",
+        "capture-pipeline.js",
+        "selection-ui.js",
+        "content.js",
+        "hotkey.js"
+      ],
       "run_at": "document_start"
     }
   ],

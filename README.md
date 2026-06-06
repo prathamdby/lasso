@@ -103,8 +103,12 @@ Project layout:
 | File | Role |
 | --- | --- |
 | `manifest.json` | Extension manifest (MV3). |
+| `messages.js` | Shared message type constants. |
 | `background.js` | Capture orchestration and downloads. |
-| `content.js` | Selection UI, crop, and stitch. |
+| `content.js` | Content-script entry and message dispatch. |
+| `capture-pipeline.js` | Crop, stitch, and export. |
+| `fixed-elements.js` | Hide and restore fixed/sticky elements. |
+| `selection-ui.js` | Overlay, selection, and toolbar UI. |
 | `content.css` | In-page capture chrome. |
 | `hotkey.js` | `Ctrl+Shift+S` listener on each tab. |
 | `popup.html` / `popup.js` / `popup.css` | Toolbar popup. |
