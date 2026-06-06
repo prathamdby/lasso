@@ -66,15 +66,21 @@
         break;
 
       case LassoMsg.CROP:
-        window.LassoCapture.handleCropResult(msg).then(() =>
-          sendResponse({ ok: true }),
-        );
+        window.LassoCapture.handleCropResult(msg)
+          .then(() => sendResponse({ ok: true }))
+          .catch((err) => {
+            console.error("Lasso crop failed:", err);
+            sendResponse({ ok: false });
+          });
         return true;
 
       case LassoMsg.STITCH:
-        window.LassoCapture.stitchAndExport(msg).then(() =>
-          sendResponse({ ok: true }),
-        );
+        window.LassoCapture.stitchAndExport(msg)
+          .then(() => sendResponse({ ok: true }))
+          .catch((err) => {
+            console.error("Lasso stitch failed:", err);
+            sendResponse({ ok: false });
+          });
         return true;
 
       case LassoMsg.HIDE_FIXED_ELEMENTS:

@@ -793,6 +793,10 @@
     if (options.truncated) {
       showNotice("Page exceeded capture limit. Screenshot may be incomplete.");
     }
+
+    if (options.error) {
+      showNotice(options.error);
+    }
   }
 
   function onCaptureCancelled() {

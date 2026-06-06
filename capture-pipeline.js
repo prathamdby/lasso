@@ -67,9 +67,16 @@
     if (!isCaptureActive()) return;
     onCaptureComplete({ keepUi: true });
 
-    const blob = await cropDataUrl(dataURL, rect, devicePixelRatio);
-    await exportBlob(blob, action);
-    onCaptureComplete({ finalize: true });
+    try {
+      const blob = await cropDataUrl(dataURL, rect, devicePixelRatio);
+      await exportBlob(blob, action);
+      onCaptureComplete({ finalize: true });
+    } catch (err) {
+      onCaptureComplete({
+        finalize: true,
+        error: err?.message || "Capture failed",
+      });
+    }
   }
 
   async function stitchAndExport({
@@ -86,47 +93,54 @@
     if (!isCaptureActive()) return;
     onCaptureComplete({ keepUi: true });
 
-    const canvas = document.createElement("canvas");
-    canvas.width = totalWidth * dpr;
-    canvas.height = totalHeight * dpr;
-    const ctx = canvas.getContext("2d");
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = totalWidth * dpr;
+      canvas.height = totalHeight * dpr;
+      const ctx = canvas.getContext("2d");
 
-    const slices = await Promise.all(
-      captures.map(async ({ dataURL, y }) => ({
-        img: await loadImage(dataURL),
-        y,
-      })),
-    );
-
-    for (const { img, y } of slices) {
-      const remainder = totalHeight - y;
-      const sliceHeight = Math.min(viewportHeight, remainder);
-      const srcHeight = sliceHeight * dpr;
-
-      ctx.drawImage(
-        img,
-        0,
-        0,
-        img.width,
-        srcHeight,
-        0,
-        y * dpr,
-        totalWidth * dpr,
-        sliceHeight * dpr,
+      const slices = await Promise.all(
+        captures.map(async ({ dataURL, y }) => ({
+          img: await loadImage(dataURL),
+          y,
+        })),
       );
-    }
 
-    let blob;
-    if (exportRect && !skipCrop) {
-      blob = await cropFromCanvas(canvas, exportRect, dpr);
-    } else {
-      blob = await new Promise((resolve) =>
-        canvas.toBlob(resolve, "image/png"),
-      );
-    }
+      for (const { img, y } of slices) {
+        const remainder = totalHeight - y;
+        const sliceHeight = Math.min(viewportHeight, remainder);
+        const srcHeight = sliceHeight * dpr;
 
-    await exportBlob(blob, action);
-    onCaptureComplete({ finalize: true, truncated: !!truncated });
+        ctx.drawImage(
+          img,
+          0,
+          0,
+          img.width,
+          srcHeight,
+          0,
+          y * dpr,
+          totalWidth * dpr,
+          sliceHeight * dpr,
+        );
+      }
+
+      let blob;
+      if (exportRect && !skipCrop) {
+        blob = await cropFromCanvas(canvas, exportRect, dpr);
+      } else {
+        blob = await new Promise((resolve) =>
+          canvas.toBlob(resolve, "image/png"),
+        );
+      }
+
+      await exportBlob(blob, action);
+      onCaptureComplete({ finalize: true, truncated: !!truncated });
+    } catch (err) {
+      onCaptureComplete({
+        finalize: true,
+        error: err?.message || "Capture failed",
+      });
+    }
   }
 
   window.LassoCapture = { init, handleCropResult, stitchAndExport };

@@ -188,6 +188,33 @@ async function abortCapture(tabId, tab, hideFixed, scrollY) {
   }
 }
 
+async function failCapture(tabId, hideFixed, scrollY, message) {
+  if (scrollY != null) {
+    try {
+      await sendToTab(tabId, { type: LassoMsg.SCROLL_TO, y: scrollY });
+    } catch {
+      // tab may be gone
+    }
+  }
+
+  if (hideFixed) {
+    try {
+      await sendToTab(tabId, { type: LassoMsg.RESTORE_FIXED_ELEMENTS });
+    } catch {
+      // tab may be gone
+    }
+  }
+
+  try {
+    await sendToTab(tabId, {
+      type: LassoMsg.CAPTURE_FAILED,
+      message: message || "Capture failed",
+    });
+  } catch {
+    // tab may be gone
+  }
+}
+
 async function bailIfCancelled(tabId, tab, hideFixed, scrollY) {
   if (!isCancelled(tabId)) return false;
   await abortCapture(tabId, tab, hideFixed, scrollY);
@@ -207,48 +234,64 @@ async function handleSelectionCapture(tabId, mode, hideFixed, action) {
   await runCapture(tabId, async () => {
     const tab = await chrome.tabs.get(tabId);
     let originalScrollY = null;
+    let fixedHidden = false;
 
-    const params = await sendToTab(tabId, {
-      type: LassoMsg.GET_CAPTURE_PARAMS,
-    });
+    try {
+      const params = await sendToTab(tabId, {
+        type: LassoMsg.GET_CAPTURE_PARAMS,
+      });
 
-    if (await bailIfCancelled(tabId, tab, hideFixed, originalScrollY)) return;
+      if (await bailIfCancelled(tabId, tab, hideFixed, originalScrollY)) return;
 
-    if (!params?.rect?.width || !params?.rect?.height) {
-      throw new Error("Selection lost before capture");
-    }
+      if (!params?.rect?.width || !params?.rect?.height) {
+        throw new Error("Selection lost before capture");
+      }
 
-    if (hideFixed) {
-      await sendToTab(tabId, { type: LassoMsg.HIDE_FIXED_ELEMENTS });
-      await delay(100);
-    }
+      if (hideFixed) {
+        await sendToTab(tabId, { type: LassoMsg.HIDE_FIXED_ELEMENTS });
+        await delay(100);
+        fixedHidden = true;
+      }
 
-    if (await bailIfCancelled(tabId, tab, hideFixed, originalScrollY)) return;
+      if (await bailIfCancelled(tabId, tab, hideFixed, originalScrollY)) return;
 
-    if (mode === "fullpage") {
-      originalScrollY = (
-        await sendToTab(tabId, { type: LassoMsg.GET_PAGE_DIMENSIONS })
-      ).scrollY;
-      await captureFullPage(tab, hideFixed, params, action, originalScrollY);
-      return;
-    }
+      if (mode === "fullpage") {
+        originalScrollY = (
+          await sendToTab(tabId, { type: LassoMsg.GET_PAGE_DIMENSIONS })
+        ).scrollY;
+        await captureFullPage(tab, hideFixed, params, action, originalScrollY);
+        return;
+      }
 
-    const dataURL = await chrome.tabs.captureVisibleTab(tab.windowId, {
-      format: "png",
-    });
+      const dataURL = await chrome.tabs.captureVisibleTab(tab.windowId, {
+        format: "png",
+      });
 
-    if (await bailIfCancelled(tabId, tab, hideFixed, originalScrollY)) return;
+      if (await bailIfCancelled(tabId, tab, hideFixed, originalScrollY)) return;
 
-    await sendToTab(tabId, {
-      type: LassoMsg.CROP,
-      dataURL,
-      rect: params.rect,
-      devicePixelRatio: params.devicePixelRatio,
-      action,
-    });
-
-    if (hideFixed) {
-      await sendToTab(tabId, { type: LassoMsg.RESTORE_FIXED_ELEMENTS });
+      await sendToTab(tabId, {
+        type: LassoMsg.CROP,
+        dataURL,
+        rect: params.rect,
+        devicePixelRatio: params.devicePixelRatio,
+        action,
+      });
+    } catch (err) {
+      console.error("Lasso selection capture failed:", err);
+      await failCapture(
+        tabId,
+        fixedHidden,
+        originalScrollY,
+        err?.message || "Capture failed",
+      );
+    } finally {
+      if (fixedHidden) {
+        try {
+          await sendToTab(tabId, { type: LassoMsg.RESTORE_FIXED_ELEMENTS });
+        } catch {
+          // tab may be gone
+        }
+      }
     }
   });
 }
@@ -308,8 +351,4 @@ async function captureFullPage(
     action,
     truncated,
   });
-
-  if (hideFixed) {
-    await sendToTab(tab.id, { type: LassoMsg.RESTORE_FIXED_ELEMENTS });
-  }
 }
