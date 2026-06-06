@@ -104,14 +104,12 @@
 
   function bindHoverListeners() {
     document.addEventListener("mousemove", onHoverMove, true);
-    document.addEventListener("mousedown", onDrawMouseDown, true);
     document.addEventListener("mouseup", onDrawMouseUp, true);
     document.addEventListener("click", onHoverClick, true);
   }
 
   function unbindHoverListeners() {
     document.removeEventListener("mousemove", onHoverMove, true);
-    document.removeEventListener("mousedown", onDrawMouseDown, true);
     document.removeEventListener("mouseup", onDrawMouseUp, true);
     document.removeEventListener("click", onHoverClick, true);
     sel.draw.pending = null;
@@ -133,6 +131,41 @@
   function unbindFreezeListeners() {
     document.removeEventListener("wheel", onFreezeEvent, true);
     document.removeEventListener("touchmove", onFreezeEvent, true);
+  }
+
+  function bindSelectionGuardListeners() {
+    document.addEventListener("selectstart", onSelectionGuardEvent, true);
+    document.addEventListener("mousedown", onSelectionBlockMouseDown, true);
+  }
+
+  function unbindSelectionGuardListeners() {
+    document.removeEventListener("selectstart", onSelectionGuardEvent, true);
+    document.removeEventListener("mousedown", onSelectionBlockMouseDown, true);
+  }
+
+  function clearPageSelection() {
+    window.getSelection()?.removeAllRanges();
+  }
+
+  function onSelectionGuardEvent(e) {
+    if (!sel.active) return;
+    if (isLassoChrome(e.target)) return;
+    e.preventDefault();
+  }
+
+  function onSelectionBlockMouseDown(e) {
+    if (!sel.active) return;
+    if (isLassoChrome(e.target) || e.button !== 0) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (!canFreestyleDraw() || sel.phase !== "hover") return;
+
+    sel.hoverTarget = null;
+    selectionEl().style.display = "none";
+    sel.draw.pending = { x: e.clientX, y: e.clientY };
+    sel.draw.active = false;
   }
 
   function onFreezeEvent(e) {
@@ -332,8 +365,11 @@
     };
 
     document.body.append(overlayNode, selectionNode, hintNode);
+    document.documentElement.classList.add("lasso-active");
+    clearPageSelection();
     document.addEventListener("keydown", onSelectionKeyDown, true);
     bindFreezeListeners();
+    bindSelectionGuardListeners();
   }
 
   function isLockedPhase() {
@@ -671,23 +707,11 @@
   }
 
   function hideCaptureChrome() {
+    clearPageSelection();
     overlay()?.style.setProperty("visibility", "hidden", "important");
     selectionEl()?.style.setProperty("visibility", "hidden", "important");
     hintEl()?.style.setProperty("visibility", "hidden", "important");
     previewScreenEl()?.style.setProperty("visibility", "hidden", "important");
-  }
-
-  function onDrawMouseDown(e) {
-    if (!sel.active || !canFreestyleDraw() || sel.phase !== "hover") return;
-    if (isLassoChrome(e.target) || e.button !== 0) return;
-
-    e.preventDefault();
-    e.stopPropagation();
-
-    sel.hoverTarget = null;
-    selectionEl().style.display = "none";
-    sel.draw.pending = { x: e.clientX, y: e.clientY };
-    sel.draw.active = false;
   }
 
   function onDrawMouseUp(e) {
@@ -1046,6 +1070,8 @@
     };
     unbindHoverListeners();
     unbindFreezeListeners();
+    unbindSelectionGuardListeners();
+    document.documentElement.classList.remove("lasso-active");
     document.removeEventListener("keydown", onSelectionKeyDown, true);
 
     if (options.truncated) {
