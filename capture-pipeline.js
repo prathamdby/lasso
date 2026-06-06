@@ -79,6 +79,30 @@
     }
   }
 
+  function stitchHeightFromCaptures(captures, totalHeight, viewportHeight) {
+    if (!captures.length) return 0;
+    const lastY = captures[captures.length - 1].y;
+    return Math.min(
+      totalHeight,
+      lastY + Math.min(viewportHeight, totalHeight - lastY),
+    );
+  }
+
+  function cropRectForStitch(exportRect, stitchHeight) {
+    if (exportRect.y >= stitchHeight) {
+      throw new Error("Crop region is below the captured page area");
+    }
+
+    if (exportRect.y + exportRect.height <= stitchHeight) {
+      return exportRect;
+    }
+
+    return {
+      ...exportRect,
+      height: stitchHeight - exportRect.y,
+    };
+  }
+
   async function stitchAndExport({
     captures,
     totalWidth,
@@ -94,9 +118,18 @@
     onCaptureComplete({ keepUi: true });
 
     try {
+      const stitchHeight = stitchHeightFromCaptures(
+        captures,
+        totalHeight,
+        viewportHeight,
+      );
+      if (stitchHeight <= 0) {
+        throw new Error("No capture slices to stitch");
+      }
+
       const canvas = document.createElement("canvas");
       canvas.width = totalWidth * dpr;
-      canvas.height = totalHeight * dpr;
+      canvas.height = stitchHeight * dpr;
       const ctx = canvas.getContext("2d");
 
       for (const { dataURL, y } of captures) {
@@ -120,7 +153,11 @@
 
       let blob;
       if (exportRect && !skipCrop) {
-        blob = await cropFromCanvas(canvas, exportRect, dpr);
+        blob = await cropFromCanvas(
+          canvas,
+          cropRectForStitch(exportRect, stitchHeight),
+          dpr,
+        );
       } else {
         blob = await new Promise((resolve) =>
           canvas.toBlob(resolve, "image/png"),
