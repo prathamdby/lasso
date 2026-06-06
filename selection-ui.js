@@ -29,8 +29,10 @@
     captureScrollY: 0,
     userResized: false,
     hoverTarget: null,
-    pickedElements: [],
+    pickedItems: [],
+    pickAnchorDocRect: null,
     pickPreviewEl: null,
+    pickAddInFlight: false,
     draw: { pending: null, active: false, suppressClick: false },
     dom: {
       overlay: null,
@@ -148,8 +150,10 @@
     sel.rect = null;
     sel.userResized = false;
     sel.hoverTarget = null;
-    sel.pickedElements = [];
+    sel.pickedItems = [];
+    sel.pickAnchorDocRect = null;
     sel.pickPreviewEl = null;
+    sel.pickAddInFlight = false;
     sel.draw = { pending: null, active: false, suppressClick: false };
 
     buildSelectionChrome();
@@ -445,6 +449,36 @@
     return rectFromDomRect(el.getBoundingClientRect());
   }
 
+  function rectToDocument(rect) {
+    return {
+      x: rect.x + window.scrollX,
+      y: rect.y + window.scrollY,
+      width: rect.width,
+      height: rect.height,
+    };
+  }
+
+  function documentRectToViewport(
+    docRect,
+    scrollX = window.scrollX,
+    scrollY = window.scrollY,
+  ) {
+    return {
+      x: docRect.x - scrollX,
+      y: docRect.y - scrollY,
+      width: docRect.width,
+      height: docRect.height,
+    };
+  }
+
+  function rectFromElementDocument(el) {
+    return rectToDocument(rectFromElement(el));
+  }
+
+  function snapshotPickItem(el) {
+    return { el, rect: rectFromElementDocument(el) };
+  }
+
   function unionRects(rects) {
     const valid = rects.filter((r) => r.width > 0 && r.height > 0);
     if (!valid.length) return null;
@@ -457,32 +491,31 @@
   }
 
   function pickRectsForUnion(extraEl = null) {
-    if (sel.userResized) {
-      const rects = sel.rect ? [sel.rect] : [];
-      if (extraEl) rects.push(rectFromElement(extraEl));
-      return rects;
-    }
-
-    const rects = sel.pickedElements.map(rectFromElement);
-    if (extraEl) rects.push(rectFromElement(extraEl));
+    const rects = sel.pickedItems.map((item) => item.rect);
+    if (sel.pickAnchorDocRect) rects.push(sel.pickAnchorDocRect);
+    else if (!sel.pickedItems.length && sel.rect) rects.push(rectToDocument(sel.rect));
+    if (extraEl) rects.push(rectFromElementDocument(extraEl));
     return rects;
   }
 
   function renderLockedPickSelection() {
-    const union = unionRects(pickRectsForUnion(sel.pickPreviewEl));
-    if (!union) {
+    const docUnion = unionRects(pickRectsForUnion(sel.pickPreviewEl));
+    if (!docUnion) {
       if (sel.rect) renderSelection(sel.rect, "locked");
       return;
     }
-    renderSelection(normalizeRect(union), "locked");
+    renderSelection(
+      normalizeRect(documentRectToViewport(docUnion)),
+      "locked",
+    );
   }
 
-  function recomputePickRect() {
-    const union = unionRects(sel.pickedElements.map(rectFromElement));
-    if (!union) return;
+  function recomputePickRect(scrollX = window.scrollX, scrollY = window.scrollY) {
+    const docUnion = unionRects(pickRectsForUnion());
+    if (!docUnion) return;
 
     sel.pickPreviewEl = null;
-    sel.rect = normalizeRect(union);
+    sel.rect = normalizeRect(documentRectToViewport(docUnion, scrollX, scrollY));
     renderSelection(sel.rect, "locked");
   }
 
@@ -503,14 +536,10 @@
   }
 
   async function ensurePickUnionInView(extraEl = null) {
-    const rects = sel.pickedElements.map(rectFromElement);
-    if (!rects.length && sel.rect) rects.push(sel.rect);
-    if (extraEl) rects.push(rectFromElement(extraEl));
-    if (!rects.length) return;
+    const docUnion = unionRects(pickRectsForUnion(extraEl));
+    if (!docUnion) return;
 
-    const union = unionRects(rects);
-    if (!union) return;
-
+    const union = documentRectToViewport(docUnion);
     const vh = window.innerHeight;
     const vw = window.innerWidth;
     const inView =
@@ -532,30 +561,27 @@
   }
 
   async function addPickElement(el) {
-    if (sel.pickedElements.includes(el)) return;
-
-    const hasExistingPick =
-      sel.pickedElements.length > 0 || (sel.userResized && sel.rect);
-    if (hasExistingPick) {
-      await ensurePickUnionInView(el);
-    } else {
-      await ensureElementInView(el);
-    }
-
-    if (sel.userResized && sel.rect) {
-      sel.userResized = false;
-      sel.pickedElements = [el];
-      sel.pickPreviewEl = null;
-      const union = unionRects([sel.rect, rectFromElement(el)]);
-      if (!union) return;
-      sel.rect = normalizeRect(union);
-      renderSelection(sel.rect, "locked");
+    if (sel.pickAddInFlight || sel.pickedItems.some((item) => item.el === el)) {
       return;
     }
 
-    sel.pickedElements.push(el);
-    sel.pickPreviewEl = null;
-    recomputePickRect();
+    sel.pickAddInFlight = true;
+    try {
+      const hasExistingPick =
+        sel.pickedItems.length > 0 || !!sel.pickAnchorDocRect || !!sel.rect;
+      if (hasExistingPick) {
+        await ensurePickUnionInView(el);
+      } else {
+        await ensureElementInView(el);
+      }
+
+      sel.pickedItems.push(snapshotPickItem(el));
+      sel.userResized = false;
+      sel.pickPreviewEl = null;
+      recomputePickRect();
+    } finally {
+      sel.pickAddInFlight = false;
+    }
   }
 
   function onPickAddMove(e) {
@@ -578,6 +604,8 @@
   }
 
   async function onPickAddClick(e) {
+    if (sel.pickAddInFlight) return;
+
     e.preventDefault();
     e.stopPropagation();
     e.stopImmediatePropagation();
@@ -720,7 +748,8 @@
   function lockSelection(rect, element = null) {
     sel.phase = sel.mode === "pick" ? "pick-add" : "locked";
     sel.userResized = false;
-    sel.pickedElements = element ? [element] : [];
+    sel.pickedItems = element ? [snapshotPickItem(element)] : [];
+    sel.pickAnchorDocRect = element ? null : rectToDocument(normalizeRect(rect));
     sel.pickPreviewEl = null;
     sel.rect = normalizeRect(rect);
     sel.draw = { pending: null, active: false, suppressClick: false };
@@ -762,8 +791,8 @@
 
     let dimensionsLabel =
       Math.round(rect.width) + " \u00d7 " + Math.round(rect.height);
-    if (phase === "locked" && sel.pickedElements.length > 1) {
-      dimensionsLabel += " \u00b7 " + sel.pickedElements.length + " elements";
+    if (phase === "locked" && sel.pickedItems.length > 1) {
+      dimensionsLabel += " \u00b7 " + sel.pickedItems.length + " elements";
     }
     sel.dom.dimensions.textContent = dimensionsLabel;
     sel.dom.dimensions.style.display = phase === "locked" ? "block" : "none";
@@ -814,7 +843,8 @@
     e.preventDefault();
     e.stopPropagation();
     selectionEl().classList.add("lasso-resizing");
-    sel.pickedElements = [];
+    sel.pickedItems = [];
+    sel.pickAnchorDocRect = null;
     sel.userResized = true;
 
     const startX = e.clientX;
@@ -927,8 +957,10 @@
     sel.captureScrollY = 0;
     sel.userResized = false;
     sel.hoverTarget = null;
-    sel.pickedElements = [];
+    sel.pickedItems = [];
+    sel.pickAnchorDocRect = null;
     sel.pickPreviewEl = null;
+    sel.pickAddInFlight = false;
     sel.draw = { pending: null, active: false, suppressClick: false };
   }
 
@@ -979,8 +1011,8 @@
   window.LassoSelection = {
     startCaptureUI,
     getCaptureParams: () => {
-      if (!sel.userResized && sel.pickedElements.length) {
-        recomputePickRect();
+      if (!sel.userResized && sel.pickedItems.length) {
+        recomputePickRect(window.scrollX, sel.captureScrollY);
       }
       return rectForCapture(sel);
     },
