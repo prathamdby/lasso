@@ -1,4 +1,17 @@
+importScripts("messages.js");
+
 const SCROLL_WAIT_MS = 150;
+const FULLPAGE_SLICE_LIMIT = 500;
+const WARM_TAB_CONCURRENCY = 5;
+
+const CONTENT_SCRIPT_FILES = [
+  "messages.js",
+  "fixed-elements.js",
+  "capture-pipeline.js",
+  "selection-ui.js",
+  "content.js",
+  "hotkey.js",
+];
 
 const activeCaptures = new Map();
 const previewDebounce = new Map();
@@ -21,59 +34,65 @@ chrome.commands.onCommand.addListener((command) => {
 
 async function warmOpenTabs() {
   const tabs = await chrome.tabs.query({ url: ["http://*/*", "https://*/*"] });
-  for (const tab of tabs) {
-    if (!tab.id) continue;
-    try {
-      await ensureInjected(tab.id);
-    } catch {
-      // restricted tab
-    }
+  const tabIds = tabs.map((tab) => tab.id).filter(Boolean);
+
+  for (let i = 0; i < tabIds.length; i += WARM_TAB_CONCURRENCY) {
+    const batch = tabIds.slice(i, i + WARM_TAB_CONCURRENCY);
+    await Promise.all(
+      batch.map((tabId) => ensureInjected(tabId).catch(() => {})),
+    );
   }
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (msg.type === "capture") {
-    handleCapture(msg.mode, msg.hideFixed).catch((err) =>
-      console.error("Lasso capture failed:", err),
-    );
-    return false;
-  }
+  switch (msg.type) {
+    case LassoMsg.CAPTURE:
+      handleCapture(msg.mode, msg.hideFixed).catch((err) =>
+        console.error("Lasso capture failed:", err),
+      );
+      break;
 
-  if (msg.type === "openPreview") {
-    handlePreview(msg.hideFixed, sender.tab?.id).catch((err) =>
-      console.error("Lasso preview failed:", err),
-    );
-    return false;
-  }
+    case LassoMsg.OPEN_PREVIEW:
+      handlePreview(msg.hideFixed, sender.tab?.id).catch((err) =>
+        console.error("Lasso preview failed:", err),
+      );
+      break;
 
-  if (msg.type === "download") {
-    chrome.downloads.download(
-      {
-        url: msg.url,
-        filename: msg.filename || "screenshot.png",
-        saveAs: false,
-      },
-      () => {
-        if (msg.revoke) URL.revokeObjectURL(msg.url);
-      },
-    );
-    return false;
-  }
+    case LassoMsg.DOWNLOAD:
+      chrome.downloads.download(
+        {
+          url: msg.url,
+          filename: msg.filename || "screenshot.png",
+          saveAs: false,
+        },
+        () => {
+          if (msg.revoke) URL.revokeObjectURL(msg.url);
+        },
+      );
+      break;
 
-  if (msg.type === "cancelCapture" && sender.tab?.id) {
-    const token = activeCaptures.get(sender.tab.id);
-    if (token) token.cancelled = true;
-    return false;
-  }
+    case LassoMsg.CANCEL_CAPTURE:
+      if (sender.tab?.id) {
+        const token = activeCaptures.get(sender.tab.id);
+        if (token) token.cancelled = true;
+      }
+      break;
 
-  if (msg.type === "selectionCapture" && sender.tab) {
-    handleSelectionCapture(
-      sender.tab.id,
-      msg.mode,
-      msg.hideFixed,
-      msg.action,
-    ).catch((err) => console.error("Lasso selection capture failed:", err));
-    return false;
+    case LassoMsg.SELECTION_CAPTURE:
+      if (sender.tab) {
+        handleSelectionCapture(
+          sender.tab.id,
+          msg.mode,
+          msg.hideFixed,
+          msg.action,
+        ).catch((err) =>
+          console.error("Lasso selection capture failed:", err),
+        );
+      }
+      break;
+
+    default:
+      break;
   }
 
   return false;
@@ -98,10 +117,11 @@ async function ensureInjected(tabId) {
   } catch {
     // already injected
   }
+
   try {
     await chrome.scripting.executeScript({
       target: { tabId },
-      files: ["content.js"],
+      files: CONTENT_SCRIPT_FILES,
     });
   } catch {
     // already injected
@@ -119,7 +139,11 @@ function delay(ms) {
 async function handleCapture(mode, hideFixed) {
   const tab = await getActiveTab();
   await ensureInjected(tab.id);
-  await sendToTab(tab.id, { type: "startSelection", mode, hideFixed });
+  await sendToTab(tab.id, {
+    type: LassoMsg.START_SELECTION,
+    mode,
+    hideFixed,
+  });
 }
 
 async function handlePreview(hideFixed, preferredTabId) {
@@ -134,13 +158,16 @@ async function handlePreview(hideFixed, preferredTabId) {
   previewDebounce.set(tab.id, now);
 
   await ensureInjected(tab.id);
-  await sendToTab(tab.id, { type: "startPreview", hideFixed: !!hideFixed });
+  await sendToTab(tab.id, {
+    type: LassoMsg.START_PREVIEW,
+    hideFixed: !!hideFixed,
+  });
 }
 
 async function abortCapture(tabId, tab, hideFixed, scrollY) {
   if (scrollY != null) {
     try {
-      await sendToTab(tabId, { type: "scrollTo", y: scrollY });
+      await sendToTab(tabId, { type: LassoMsg.SCROLL_TO, y: scrollY });
     } catch {
       // tab may be gone
     }
@@ -148,78 +175,125 @@ async function abortCapture(tabId, tab, hideFixed, scrollY) {
 
   if (hideFixed) {
     try {
-      await sendToTab(tabId, { type: "restoreFixedElements" });
+      await sendToTab(tabId, { type: LassoMsg.RESTORE_FIXED_ELEMENTS });
     } catch {
       // tab may be gone
     }
   }
 
   try {
-    await sendToTab(tabId, { type: "captureCancelled" });
+    await sendToTab(tabId, { type: LassoMsg.CAPTURE_CANCELLED });
   } catch {
     // tab may be gone
   }
 }
 
-async function handleSelectionCapture(tabId, mode, hideFixed, action) {
-  const token = { cancelled: false };
-  activeCaptures.set(tabId, token);
+async function failCapture(tabId, hideFixed, scrollY, message) {
+  if (scrollY != null) {
+    try {
+      await sendToTab(tabId, { type: LassoMsg.SCROLL_TO, y: scrollY });
+    } catch {
+      // tab may be gone
+    }
+  }
 
-  let originalScrollY = null;
+  if (hideFixed) {
+    try {
+      await sendToTab(tabId, { type: LassoMsg.RESTORE_FIXED_ELEMENTS });
+    } catch {
+      // tab may be gone
+    }
+  }
 
   try {
-    const tab = await chrome.tabs.get(tabId);
-    const params = await sendToTab(tabId, { type: "getCaptureParams" });
-
-    if (isCancelled(tabId)) {
-      await abortCapture(tabId, tab, hideFixed, originalScrollY);
-      return;
-    }
-
-    if (!params?.rect?.width || !params?.rect?.height) {
-      throw new Error("Selection lost before capture");
-    }
-
-    if (hideFixed) {
-      await sendToTab(tabId, { type: "hideFixedElements" });
-      await delay(100);
-    }
-
-    if (isCancelled(tabId)) {
-      await abortCapture(tabId, tab, hideFixed, originalScrollY);
-      return;
-    }
-
-    if (mode === "fullpage") {
-      originalScrollY = (await sendToTab(tabId, { type: "getPageDimensions" }))
-        .scrollY;
-      await captureFullPage(tab, hideFixed, params, action, originalScrollY);
-      return;
-    }
-
-    const dataURL = await chrome.tabs.captureVisibleTab(tab.windowId, {
-      format: "png",
-    });
-
-    if (isCancelled(tabId)) {
-      await abortCapture(tabId, tab, hideFixed, originalScrollY);
-      return;
-    }
-
     await sendToTab(tabId, {
-      type: "crop",
-      dataURL,
-      rect: params.rect,
-      devicePixelRatio: params.devicePixelRatio,
-      action,
+      type: LassoMsg.CAPTURE_FAILED,
+      message: message || "Capture failed",
     });
+  } catch {
+    // tab may be gone
+  }
+}
 
-    if (hideFixed) {
-      await sendToTab(tabId, { type: "restoreFixedElements" });
-    }
+async function bailIfCancelled(tabId, tab, hideFixed, scrollY) {
+  if (!isCancelled(tabId)) return false;
+  await abortCapture(tabId, tab, hideFixed, scrollY);
+  return true;
+}
+
+async function runCapture(tabId, fn) {
+  activeCaptures.set(tabId, { cancelled: false });
+  try {
+    await fn();
   } finally {
     activeCaptures.delete(tabId);
   }
+}
+
+async function handleSelectionCapture(tabId, mode, hideFixed, action) {
+  await runCapture(tabId, async () => {
+    const tab = await chrome.tabs.get(tabId);
+    let originalScrollY = null;
+    let fixedHidden = false;
+
+    try {
+      const params = await sendToTab(tabId, {
+        type: LassoMsg.GET_CAPTURE_PARAMS,
+      });
+
+      if (await bailIfCancelled(tabId, tab, hideFixed, originalScrollY)) return;
+
+      if (!params?.rect?.width || !params?.rect?.height) {
+        throw new Error("Selection lost before capture");
+      }
+
+      if (hideFixed) {
+        await sendToTab(tabId, { type: LassoMsg.HIDE_FIXED_ELEMENTS });
+        await delay(100);
+        fixedHidden = true;
+      }
+
+      if (await bailIfCancelled(tabId, tab, hideFixed, originalScrollY)) return;
+
+      if (mode === "fullpage") {
+        originalScrollY = (
+          await sendToTab(tabId, { type: LassoMsg.GET_PAGE_DIMENSIONS })
+        ).scrollY;
+        await captureFullPage(tab, hideFixed, params, action, originalScrollY);
+        return;
+      }
+
+      const dataURL = await chrome.tabs.captureVisibleTab(tab.windowId, {
+        format: "png",
+      });
+
+      if (await bailIfCancelled(tabId, tab, hideFixed, originalScrollY)) return;
+
+      await sendToTab(tabId, {
+        type: LassoMsg.CROP,
+        dataURL,
+        rect: params.rect,
+        devicePixelRatio: params.devicePixelRatio,
+        action,
+      });
+    } catch (err) {
+      console.error("Lasso selection capture failed:", err);
+      await failCapture(
+        tabId,
+        fixedHidden,
+        originalScrollY,
+        err?.message || "Capture failed",
+      );
+    } finally {
+      if (fixedHidden) {
+        try {
+          await sendToTab(tabId, { type: LassoMsg.RESTORE_FIXED_ELEMENTS });
+        } catch {
+          // tab may be gone
+        }
+      }
+    }
+  });
 }
 
 async function captureFullPage(
@@ -229,51 +303,44 @@ async function captureFullPage(
   action,
   originalScrollY,
 ) {
-  await sendToTab(tab.id, { type: "prepareCapture" });
+  await sendToTab(tab.id, { type: LassoMsg.PREPARE_CAPTURE });
   await delay(50);
 
-  if (isCancelled(tab.id)) {
-    await abortCapture(tab.id, tab, hideFixed, originalScrollY);
-    return;
-  }
+  if (await bailIfCancelled(tab.id, tab, hideFixed, originalScrollY)) return;
 
-  const dims = await sendToTab(tab.id, { type: "getPageDimensions" });
+  const dims = await sendToTab(tab.id, { type: LassoMsg.GET_PAGE_DIMENSIONS });
   const { totalHeight, totalWidth, viewportHeight, devicePixelRatio } = dims;
 
   const captures = [];
   let y = 0;
+  let truncated = false;
 
   while (y < totalHeight) {
-    if (isCancelled(tab.id)) {
-      await abortCapture(tab.id, tab, hideFixed, originalScrollY);
-      return;
-    }
+    if (await bailIfCancelled(tab.id, tab, hideFixed, originalScrollY)) return;
 
-    await sendToTab(tab.id, { type: "scrollTo", y });
+    await sendToTab(tab.id, { type: LassoMsg.SCROLL_TO, y });
     await delay(SCROLL_WAIT_MS);
 
-    if (isCancelled(tab.id)) {
-      await abortCapture(tab.id, tab, hideFixed, originalScrollY);
-      return;
-    }
+    if (await bailIfCancelled(tab.id, tab, hideFixed, originalScrollY)) return;
 
     const dataURL = await chrome.tabs.captureVisibleTab(tab.windowId, {
       format: "png",
     });
     captures.push({ dataURL, y });
     y += viewportHeight;
-    if (captures.length > 500) break;
+
+    if (captures.length >= FULLPAGE_SLICE_LIMIT) {
+      truncated = y < totalHeight;
+      break;
+    }
   }
 
-  if (isCancelled(tab.id)) {
-    await abortCapture(tab.id, tab, hideFixed, originalScrollY);
-    return;
-  }
+  if (await bailIfCancelled(tab.id, tab, hideFixed, originalScrollY)) return;
 
-  await sendToTab(tab.id, { type: "scrollTo", y: originalScrollY });
+  await sendToTab(tab.id, { type: LassoMsg.SCROLL_TO, y: originalScrollY });
 
   await sendToTab(tab.id, {
-    type: "stitch",
+    type: LassoMsg.STITCH,
     captures,
     totalWidth,
     totalHeight,
@@ -282,9 +349,6 @@ async function captureFullPage(
     exportRect: params.skipCrop ? null : params.rect,
     skipCrop: !!params.skipCrop,
     action,
+    truncated,
   });
-
-  if (hideFixed) {
-    await sendToTab(tab.id, { type: "restoreFixedElements" });
-  }
 }
