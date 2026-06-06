@@ -494,34 +494,41 @@
     return { x: left, y: top, width: right - left, height: bottom - top };
   }
 
-  function pickRectsForUnion(extraEl = null) {
-    const rects = sel.pickedItems.map((item) => item.rect);
-    if (sel.pickAnchorDocRect) rects.push(sel.pickAnchorDocRect);
-    if (sel.pickManualDocRect) rects.push(sel.pickManualDocRect);
-    else if (!sel.pickedItems.length && sel.rect) rects.push(rectToDocument(sel.rect));
-    if (extraEl) rects.push(rectFromElementDocument(extraEl));
+  function pickRectsForUnion(
+    extraEl = null,
+    scrollX = window.scrollX,
+    scrollY = window.scrollY,
+  ) {
+    const rects = sel.pickedItems.map((item) => {
+      if (item.el?.isConnected) return rectFromElement(item.el);
+      return documentRectToViewport(item.rect, scrollX, scrollY);
+    });
+    if (sel.pickAnchorDocRect) {
+      rects.push(documentRectToViewport(sel.pickAnchorDocRect, scrollX, scrollY));
+    }
+    if (sel.pickManualDocRect) {
+      rects.push(documentRectToViewport(sel.pickManualDocRect, scrollX, scrollY));
+    } else if (!sel.pickedItems.length && sel.rect) {
+      rects.push(sel.rect);
+    }
+    if (extraEl) rects.push(rectFromElement(extraEl));
     return rects;
   }
 
   function renderLockedPickSelection() {
-    const docUnion = unionRects(pickRectsForUnion(sel.pickPreviewEl));
-    if (!docUnion) {
+    const viewUnion = unionRects(pickRectsForUnion(sel.pickPreviewEl));
+    if (!viewUnion) {
       if (sel.rect) renderSelection(sel.rect, "locked");
       return;
     }
-    renderSelection(
-      normalizeRect(documentRectToViewport(docUnion)),
-      "locked",
-    );
+    renderSelection(normalizeRect(viewUnion), "locked");
   }
 
   function pickUnionViewportRect(
     scrollX = window.scrollX,
     scrollY = window.scrollY,
   ) {
-    const docUnion = unionRects(pickRectsForUnion());
-    if (!docUnion) return null;
-    return documentRectToViewport(docUnion, scrollX, scrollY);
+    return unionRects(pickRectsForUnion(null, scrollX, scrollY));
   }
 
   function pickCropWouldClip(
@@ -544,11 +551,11 @@
   }
 
   function recomputePickRect(scrollX = window.scrollX, scrollY = window.scrollY) {
-    const docUnion = unionRects(pickRectsForUnion());
-    if (!docUnion) return;
+    const viewUnion = unionRects(pickRectsForUnion(null, scrollX, scrollY));
+    if (!viewUnion) return;
 
     sel.pickPreviewEl = null;
-    sel.rect = normalizeRect(documentRectToViewport(docUnion, scrollX, scrollY));
+    sel.rect = normalizeRect(viewUnion);
     renderSelection(sel.rect, "locked");
   }
 
@@ -569,10 +576,8 @@
   }
 
   async function ensurePickUnionInView(extraEl = null) {
-    const docUnion = unionRects(pickRectsForUnion(extraEl));
-    if (!docUnion) return;
-
-    const union = documentRectToViewport(docUnion);
+    const union = unionRects(pickRectsForUnion(extraEl));
+    if (!union) return;
     const vh = window.innerHeight;
     const vw = window.innerWidth;
     const inView =
@@ -611,10 +616,12 @@
       } else {
         await ensureElementInView(el);
       }
+      if (!sel.active) return;
 
       if (sel.userResized && sel.rect) {
         sel.pickManualDocRect = rectToDocument(sel.rect);
       }
+      if (!sel.active) return;
 
       sel.pickedItems.push(snapshotPickItem(el));
       sel.userResized = false;
@@ -827,6 +834,7 @@
   }
 
   function renderSelection(rect, phase) {
+    if (!sel.active || !selectionEl()) return;
     if (rect.width <= 0 || rect.height <= 0) {
       selectionEl().style.display = "none";
       return;
