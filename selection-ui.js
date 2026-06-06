@@ -30,6 +30,7 @@
     userResized: false,
     hoverTarget: null,
     pickedElements: [],
+    pickPreviewEl: null,
     draw: { pending: null, active: false, suppressClick: false },
     dom: {
       overlay: null,
@@ -148,6 +149,7 @@
     sel.userResized = false;
     sel.hoverTarget = null;
     sel.pickedElements = [];
+    sel.pickPreviewEl = null;
     sel.draw = { pending: null, active: false, suppressClick: false };
 
     buildSelectionChrome();
@@ -323,15 +325,11 @@
 
     document.body.append(overlayNode, selectionNode, hintNode);
     document.addEventListener("keydown", onSelectionKeyDown, true);
-    document.addEventListener("keyup", onSelectionKeyUp, true);
     bindFreezeListeners();
   }
 
-  function onSelectionKeyUp(e) {
-    if (e.key !== "Shift") return;
-    if (!sel.active || sel.phase !== "locked" || sel.mode !== "pick" || !sel.rect)
-      return;
-    renderSelection(sel.rect, "locked");
+  function isLockedPhase() {
+    return sel.phase === "locked" || sel.phase === "pick-add";
   }
 
   function onSelectionKeyDown(e) {
@@ -342,7 +340,7 @@
       return;
     }
 
-    if (sel.phase !== "locked") return;
+    if (!isLockedPhase()) return;
 
     const mod = e.ctrlKey || e.metaKey;
     if (!mod) return;
@@ -458,10 +456,32 @@
     return { x: left, y: top, width: right - left, height: bottom - top };
   }
 
+  function pickRectsForUnion(extraEl = null) {
+    if (sel.userResized) {
+      const rects = sel.rect ? [sel.rect] : [];
+      if (extraEl) rects.push(rectFromElement(extraEl));
+      return rects;
+    }
+
+    const rects = sel.pickedElements.map(rectFromElement);
+    if (extraEl) rects.push(rectFromElement(extraEl));
+    return rects;
+  }
+
+  function renderLockedPickSelection() {
+    const union = unionRects(pickRectsForUnion(sel.pickPreviewEl));
+    if (!union) {
+      if (sel.rect) renderSelection(sel.rect, "locked");
+      return;
+    }
+    renderSelection(normalizeRect(union), "locked");
+  }
+
   function recomputePickRect() {
     const union = unionRects(sel.pickedElements.map(rectFromElement));
     if (!union) return;
 
+    sel.pickPreviewEl = null;
     sel.rect = normalizeRect(union);
     renderSelection(sel.rect, "locked");
   }
@@ -487,6 +507,7 @@
 
     await ensureElementInView(el);
 
+    // Manual resize clears picks; Shift+click starts a new element-backed selection.
     if (sel.userResized) {
       sel.userResized = false;
       sel.pickedElements = [el];
@@ -494,7 +515,39 @@
       sel.pickedElements.push(el);
     }
 
+    sel.pickPreviewEl = null;
     recomputePickRect();
+  }
+
+  function onPickAddMove(e) {
+    if (!e.shiftKey) {
+      sel.pickPreviewEl = null;
+      if (sel.rect) renderSelection(sel.rect, "locked");
+      return;
+    }
+    if (isLassoChrome(e.target)) return;
+
+    const el = resolvePickTarget(e.clientX, e.clientY);
+    if (!el) {
+      sel.pickPreviewEl = null;
+      if (sel.rect) renderSelection(sel.rect, "locked");
+      return;
+    }
+
+    sel.pickPreviewEl = el;
+    renderLockedPickSelection();
+  }
+
+  async function onPickAddClick(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+
+    const el = resolvePickTarget(e.clientX, e.clientY);
+    if (!el) return;
+
+    sel.pickPreviewEl = null;
+    await addPickElement(el);
   }
 
   function hideCaptureChrome() {
@@ -550,25 +603,7 @@
 
   function onHoverMove(e) {
     if (!sel.active) return;
-
-    if (sel.phase === "locked" && sel.mode === "pick") {
-      if (!e.shiftKey) return;
-      if (isLassoChrome(e.target)) return;
-
-      const el = resolvePickTarget(e.clientX, e.clientY);
-      if (!el) {
-        renderSelection(sel.rect, "locked");
-        return;
-      }
-
-      const rects = sel.pickedElements.map(rectFromElement);
-      if (!rects.length && sel.rect) rects.push(sel.rect);
-      rects.push(rectFromElement(el));
-      const union = unionRects(rects);
-      if (union) renderSelection(normalizeRect(union), "locked");
-      return;
-    }
-
+    if (sel.phase === "pick-add") return onPickAddMove(e);
     if (sel.phase !== "hover") return;
 
     if (sel.draw.pending && canFreestyleDraw()) {
@@ -612,7 +647,7 @@
     }
 
     setOverlayDim(false);
-    renderSelection(rectFromDomRect(el.getBoundingClientRect()), "hover");
+    renderSelection(rectFromElement(el), "hover");
   }
 
   async function onHoverClick(e) {
@@ -624,19 +659,12 @@
       return;
     }
 
-    if (sel.phase === "locked" && sel.mode === "pick" && e.shiftKey) {
-      e.preventDefault();
-      e.stopPropagation();
-      e.stopImmediatePropagation();
-
-      const el = resolvePickTarget(e.clientX, e.clientY);
-      if (!el) return;
-
-      await addPickElement(el);
-      return;
+    if (sel.phase === "pick-add") {
+      if (!e.shiftKey) return;
+      return onPickAddClick(e);
     }
 
-    if (sel.phase === "locked") return;
+    if (isLockedPhase()) return;
     if (sel.draw.pending || sel.draw.active) return;
 
     e.preventDefault();
@@ -651,9 +679,10 @@
   }
 
   function lockSelection(rect, element = null) {
-    sel.phase = "locked";
+    sel.phase = sel.mode === "pick" ? "pick-add" : "locked";
     sel.userResized = false;
     sel.pickedElements = element ? [element] : [];
+    sel.pickPreviewEl = null;
     sel.rect = normalizeRect(rect);
     sel.draw = { pending: null, active: false, suppressClick: false };
     removePreviewScreen();
@@ -741,7 +770,7 @@
   }
 
   function startResize(e, dir) {
-    if (sel.phase !== "locked" || !sel.rect) return;
+    if (!isLockedPhase() || !sel.rect) return;
 
     e.preventDefault();
     e.stopPropagation();
@@ -860,6 +889,7 @@
     sel.userResized = false;
     sel.hoverTarget = null;
     sel.pickedElements = [];
+    sel.pickPreviewEl = null;
     sel.draw = { pending: null, active: false, suppressClick: false };
   }
 
@@ -880,7 +910,6 @@
     unbindHoverListeners();
     unbindFreezeListeners();
     document.removeEventListener("keydown", onSelectionKeyDown, true);
-    document.removeEventListener("keyup", onSelectionKeyUp, true);
 
     if (options.truncated) {
       showNotice("Page exceeded capture limit. Screenshot may be incomplete.");
