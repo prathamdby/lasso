@@ -29,6 +29,7 @@
     captureScrollY: 0,
     userResized: false,
     hoverTarget: null,
+    pickedElements: [],
     draw: { pending: null, active: false, suppressClick: false },
     dom: {
       overlay: null,
@@ -146,6 +147,7 @@
     sel.rect = null;
     sel.userResized = false;
     sel.hoverTarget = null;
+    sel.pickedElements = [];
     sel.draw = { pending: null, active: false, suppressClick: false };
 
     buildSelectionChrome();
@@ -165,7 +167,7 @@
       hintEl().textContent =
         mode === "freestyle"
           ? "Drag to select a region · Esc to cancel"
-          : "Hover an element · click to select · Esc to cancel";
+          : "Hover an element · click to select · Shift+click to add more · Esc to cancel";
       bindHoverListeners();
       return;
     }
@@ -321,7 +323,15 @@
 
     document.body.append(overlayNode, selectionNode, hintNode);
     document.addEventListener("keydown", onSelectionKeyDown, true);
+    document.addEventListener("keyup", onSelectionKeyUp, true);
     bindFreezeListeners();
+  }
+
+  function onSelectionKeyUp(e) {
+    if (e.key !== "Shift") return;
+    if (!sel.active || sel.phase !== "locked" || sel.mode !== "pick" || !sel.rect)
+      return;
+    renderSelection(sel.rect, "locked");
   }
 
   function onSelectionKeyDown(e) {
@@ -433,6 +443,60 @@
     };
   }
 
+  function rectFromElement(el) {
+    return rectFromDomRect(el.getBoundingClientRect());
+  }
+
+  function unionRects(rects) {
+    const valid = rects.filter((r) => r.width > 0 && r.height > 0);
+    if (!valid.length) return null;
+
+    const left = Math.min(...valid.map((r) => r.x));
+    const top = Math.min(...valid.map((r) => r.y));
+    const right = Math.max(...valid.map((r) => r.x + r.width));
+    const bottom = Math.max(...valid.map((r) => r.y + r.height));
+    return { x: left, y: top, width: right - left, height: bottom - top };
+  }
+
+  function recomputePickRect() {
+    const union = unionRects(sel.pickedElements.map(rectFromElement));
+    if (!union) return;
+
+    sel.rect = normalizeRect(union);
+    renderSelection(sel.rect, "locked");
+  }
+
+  async function ensureElementInView(el) {
+    const domRect = el.getBoundingClientRect();
+    const vh = window.innerHeight;
+    const vw = window.innerWidth;
+    const outOfView =
+      domRect.top < 0 ||
+      domRect.left < 0 ||
+      domRect.bottom > vh ||
+      domRect.right > vw;
+
+    if (outOfView) {
+      el.scrollIntoView({ block: "nearest", inline: "nearest" });
+      await new Promise((r) => setTimeout(r, PICK_SCROLL_WAIT_MS));
+    }
+  }
+
+  async function addPickElement(el) {
+    if (sel.pickedElements.includes(el)) return;
+
+    await ensureElementInView(el);
+
+    if (sel.userResized) {
+      sel.userResized = false;
+      sel.pickedElements = [el];
+    } else {
+      sel.pickedElements.push(el);
+    }
+
+    recomputePickRect();
+  }
+
   function hideCaptureChrome() {
     overlay()?.style.setProperty("visibility", "hidden", "important");
     selectionEl()?.style.setProperty("visibility", "hidden", "important");
@@ -485,7 +549,27 @@
   }
 
   function onHoverMove(e) {
-    if (!sel.active || sel.phase !== "hover") return;
+    if (!sel.active) return;
+
+    if (sel.phase === "locked" && sel.mode === "pick") {
+      if (!e.shiftKey) return;
+      if (isLassoChrome(e.target)) return;
+
+      const el = resolvePickTarget(e.clientX, e.clientY);
+      if (!el) {
+        renderSelection(sel.rect, "locked");
+        return;
+      }
+
+      const rects = sel.pickedElements.map(rectFromElement);
+      if (!rects.length && sel.rect) rects.push(sel.rect);
+      rects.push(rectFromElement(el));
+      const union = unionRects(rects);
+      if (union) renderSelection(normalizeRect(union), "locked");
+      return;
+    }
+
+    if (sel.phase !== "hover") return;
 
     if (sel.draw.pending && canFreestyleDraw()) {
       const dx = e.clientX - sel.draw.pending.x;
@@ -540,7 +624,20 @@
       return;
     }
 
-    if (sel.phase !== "hover" || sel.draw.pending || sel.draw.active) return;
+    if (sel.phase === "locked" && sel.mode === "pick" && e.shiftKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+
+      const el = resolvePickTarget(e.clientX, e.clientY);
+      if (!el) return;
+
+      await addPickElement(el);
+      return;
+    }
+
+    if (sel.phase === "locked") return;
+    if (sel.draw.pending || sel.draw.active) return;
 
     e.preventDefault();
     e.stopPropagation();
@@ -549,26 +646,14 @@
     const el = sel.hoverTarget || resolvePickTarget(e.clientX, e.clientY);
     if (!el) return;
 
-    const domRect = el.getBoundingClientRect();
-    const vh = window.innerHeight;
-    const vw = window.innerWidth;
-    const outOfView =
-      domRect.top < 0 ||
-      domRect.left < 0 ||
-      domRect.bottom > vh ||
-      domRect.right > vw;
-
-    if (outOfView) {
-      el.scrollIntoView({ block: "nearest", inline: "nearest" });
-      await new Promise((r) => setTimeout(r, PICK_SCROLL_WAIT_MS));
-    }
-
-    lockSelection(rectFromDomRect(el.getBoundingClientRect()));
+    await ensureElementInView(el);
+    lockSelection(rectFromElement(el), el);
   }
 
-  function lockSelection(rect) {
+  function lockSelection(rect, element = null) {
     sel.phase = "locked";
     sel.userResized = false;
+    sel.pickedElements = element ? [element] : [];
     sel.rect = normalizeRect(rect);
     sel.draw = { pending: null, active: false, suppressClick: false };
     removePreviewScreen();
@@ -580,7 +665,7 @@
       h.style.display = "block";
     });
 
-    unbindHoverListeners();
+    if (sel.mode !== "pick") unbindHoverListeners();
     renderSelection(sel.rect, "locked");
   }
 
@@ -607,8 +692,12 @@
     selectionEl().style.width = rect.width + "px";
     selectionEl().style.height = rect.height + "px";
 
-    sel.dom.dimensions.textContent =
+    let dimensionsLabel =
       Math.round(rect.width) + " \u00d7 " + Math.round(rect.height);
+    if (phase === "locked" && sel.pickedElements.length > 1) {
+      dimensionsLabel += " \u00b7 " + sel.pickedElements.length + " elements";
+    }
+    sel.dom.dimensions.textContent = dimensionsLabel;
     sel.dom.dimensions.style.display = phase === "locked" ? "block" : "none";
 
     if (phase === "locked") {
@@ -657,6 +746,8 @@
     e.preventDefault();
     e.stopPropagation();
     selectionEl().classList.add("lasso-resizing");
+    sel.pickedElements = [];
+    sel.userResized = true;
 
     const startX = e.clientX;
     const startY = e.clientY;
@@ -678,7 +769,6 @@
         height = start.height - dy;
       }
 
-      sel.userResized = true;
       sel.rect = normalizeRect({ x, y, width, height });
       renderSelection(sel.rect, "locked");
     }
@@ -769,6 +859,7 @@
     sel.captureScrollY = 0;
     sel.userResized = false;
     sel.hoverTarget = null;
+    sel.pickedElements = [];
     sel.draw = { pending: null, active: false, suppressClick: false };
   }
 
@@ -789,6 +880,7 @@
     unbindHoverListeners();
     unbindFreezeListeners();
     document.removeEventListener("keydown", onSelectionKeyDown, true);
+    document.removeEventListener("keyup", onSelectionKeyUp, true);
 
     if (options.truncated) {
       showNotice("Page exceeded capture limit. Screenshot may be incomplete.");
