@@ -1,4 +1,10 @@
 /* Mirrors popup.css tokens */
+html.lasso-active,
+html.lasso-active * {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
 #lasso-overlay {
   position: fixed;
   inset: 0;
