@@ -29,6 +29,12 @@
     captureScrollY: 0,
     userResized: false,
     hoverTarget: null,
+    pickedItems: [],
+    pickAnchorDocRect: null,
+    pickManualDocRect: null,
+    pickPreviewEl: null,
+    pickAddInFlight: false,
+    pickAddPromise: null,
     draw: { pending: null, active: false, suppressClick: false },
     dom: {
       overlay: null,
@@ -146,6 +152,12 @@
     sel.rect = null;
     sel.userResized = false;
     sel.hoverTarget = null;
+    sel.pickedItems = [];
+    sel.pickAnchorDocRect = null;
+    sel.pickManualDocRect = null;
+    sel.pickPreviewEl = null;
+    sel.pickAddInFlight = false;
+    sel.pickAddPromise = null;
     sel.draw = { pending: null, active: false, suppressClick: false };
 
     buildSelectionChrome();
@@ -165,7 +177,7 @@
       hintEl().textContent =
         mode === "freestyle"
           ? "Drag to select a region · Esc to cancel"
-          : "Hover an element · click to select · Esc to cancel";
+          : "Hover an element · click to select · Shift+click to add more · Esc to cancel";
       bindHoverListeners();
       return;
     }
@@ -324,6 +336,10 @@
     bindFreezeListeners();
   }
 
+  function isLockedPhase() {
+    return sel.phase === "locked" || sel.phase === "pick-add";
+  }
+
   function onSelectionKeyDown(e) {
     if (e.key === "Escape") {
       e.preventDefault();
@@ -332,7 +348,7 @@
       return;
     }
 
-    if (sel.phase !== "locked") return;
+    if (!isLockedPhase()) return;
 
     const mod = e.ctrlKey || e.metaKey;
     if (!mod) return;
@@ -340,14 +356,14 @@
     if (e.key.toLowerCase() === "c") {
       e.preventDefault();
       e.stopPropagation();
-      executeCapture("copy");
+      void executeCapture("copy");
       return;
     }
 
     if (e.key.toLowerCase() === "s") {
       e.preventDefault();
       e.stopPropagation();
-      executeCapture("download");
+      void executeCapture("download");
     }
   }
 
@@ -433,6 +449,227 @@
     };
   }
 
+  function rectFromElement(el) {
+    return rectFromDomRect(el.getBoundingClientRect());
+  }
+
+  function rectToDocument(rect) {
+    return {
+      x: rect.x + window.scrollX,
+      y: rect.y + window.scrollY,
+      width: rect.width,
+      height: rect.height,
+    };
+  }
+
+  function documentRectToViewport(
+    docRect,
+    scrollX = window.scrollX,
+    scrollY = window.scrollY,
+  ) {
+    return {
+      x: docRect.x - scrollX,
+      y: docRect.y - scrollY,
+      width: docRect.width,
+      height: docRect.height,
+    };
+  }
+
+  function rectFromElementDocument(el) {
+    return rectToDocument(rectFromElement(el));
+  }
+
+  function snapshotPickItem(el) {
+    return { el, rect: rectFromElementDocument(el) };
+  }
+
+  function unionRects(rects) {
+    const valid = rects.filter((r) => r.width > 0 && r.height > 0);
+    if (!valid.length) return null;
+
+    const left = Math.min(...valid.map((r) => r.x));
+    const top = Math.min(...valid.map((r) => r.y));
+    const right = Math.max(...valid.map((r) => r.x + r.width));
+    const bottom = Math.max(...valid.map((r) => r.y + r.height));
+    return { x: left, y: top, width: right - left, height: bottom - top };
+  }
+
+  function pickRectsForUnion(
+    extraEl = null,
+    scrollX = window.scrollX,
+    scrollY = window.scrollY,
+  ) {
+    const rects = sel.pickedItems.map((item) => {
+      if (item.el?.isConnected) return rectFromElement(item.el);
+      return documentRectToViewport(item.rect, scrollX, scrollY);
+    });
+    if (sel.pickAnchorDocRect) {
+      rects.push(documentRectToViewport(sel.pickAnchorDocRect, scrollX, scrollY));
+    }
+    if (sel.pickManualDocRect) {
+      rects.push(documentRectToViewport(sel.pickManualDocRect, scrollX, scrollY));
+    } else if (!sel.pickedItems.length && sel.rect) {
+      rects.push(sel.rect);
+    }
+    if (extraEl) rects.push(rectFromElement(extraEl));
+    return rects;
+  }
+
+  function renderLockedPickSelection() {
+    const viewUnion = unionRects(pickRectsForUnion(sel.pickPreviewEl));
+    if (!viewUnion) {
+      if (sel.rect) renderSelection(sel.rect, "locked");
+      return;
+    }
+    renderSelection(normalizeRect(viewUnion), "locked");
+  }
+
+  function pickUnionViewportRect(
+    scrollX = window.scrollX,
+    scrollY = window.scrollY,
+  ) {
+    return unionRects(pickRectsForUnion(null, scrollX, scrollY));
+  }
+
+  function pickCropWouldClip(
+    scrollX = window.scrollX,
+    scrollY = window.scrollY,
+  ) {
+    const view = pickUnionViewportRect(scrollX, scrollY);
+    if (!view) return false;
+    const normalized = normalizeRect(view);
+    return (
+      normalized.x !== view.x ||
+      normalized.y !== view.y ||
+      normalized.width !== view.width ||
+      normalized.height !== view.height
+    );
+  }
+
+  async function waitForPickAddIdle() {
+    if (sel.pickAddPromise) await sel.pickAddPromise;
+  }
+
+  function recomputePickRect(scrollX = window.scrollX, scrollY = window.scrollY) {
+    const viewUnion = unionRects(pickRectsForUnion(null, scrollX, scrollY));
+    if (!viewUnion) return;
+
+    sel.pickPreviewEl = null;
+    sel.rect = normalizeRect(viewUnion);
+    renderSelection(sel.rect, "locked");
+  }
+
+  async function ensureElementInView(el) {
+    const domRect = el.getBoundingClientRect();
+    const vh = window.innerHeight;
+    const vw = window.innerWidth;
+    const outOfView =
+      domRect.top < 0 ||
+      domRect.left < 0 ||
+      domRect.bottom > vh ||
+      domRect.right > vw;
+
+    if (outOfView) {
+      el.scrollIntoView({ block: "nearest", inline: "nearest" });
+      await new Promise((r) => setTimeout(r, PICK_SCROLL_WAIT_MS));
+    }
+  }
+
+  async function ensurePickUnionInView(extraEl = null) {
+    const union = unionRects(pickRectsForUnion(extraEl));
+    if (!union) return;
+    const vh = window.innerHeight;
+    const vw = window.innerWidth;
+    const inView =
+      union.y >= 0 &&
+      union.x >= 0 &&
+      union.y + union.height <= vh &&
+      union.x + union.width <= vw;
+    if (inView) return;
+
+    let nextX = window.scrollX;
+    let nextY = window.scrollY;
+    if (union.y < 0) nextY += union.y;
+    if (union.x < 0) nextX += union.x;
+    if (union.y + union.height > vh) nextY += union.y + union.height - vh;
+    if (union.x + union.width > vw) nextX += union.x + union.width - vw;
+
+    window.scrollTo({ left: nextX, top: nextY });
+    await new Promise((r) => setTimeout(r, PICK_SCROLL_WAIT_MS));
+  }
+
+  async function addPickElement(el) {
+    if (sel.pickedItems.some((item) => item.el === el)) return;
+    if (sel.pickAddInFlight) {
+      await waitForPickAddIdle();
+      if (sel.pickedItems.some((item) => item.el === el)) return;
+    }
+
+    const work = (async () => {
+      const hasExistingPick =
+        sel.pickedItems.length > 0 ||
+        !!sel.pickAnchorDocRect ||
+        !!sel.pickManualDocRect ||
+        !!sel.rect;
+      if (hasExistingPick) {
+        await ensurePickUnionInView(el);
+      } else {
+        await ensureElementInView(el);
+      }
+      if (!sel.active) return;
+
+      if (sel.userResized && sel.rect) {
+        sel.pickManualDocRect = rectToDocument(sel.rect);
+      }
+      if (!sel.active) return;
+
+      sel.pickedItems.push(snapshotPickItem(el));
+      sel.userResized = false;
+      sel.pickPreviewEl = null;
+      recomputePickRect();
+    })();
+
+    sel.pickAddInFlight = true;
+    sel.pickAddPromise = work;
+    try {
+      await work;
+    } finally {
+      sel.pickAddInFlight = false;
+      if (sel.pickAddPromise === work) sel.pickAddPromise = null;
+    }
+  }
+
+  function onPickAddMove(e) {
+    if (!e.shiftKey) {
+      sel.pickPreviewEl = null;
+      if (sel.rect) renderSelection(sel.rect, "locked");
+      return;
+    }
+    if (isLassoChrome(e.target)) return;
+
+    const el = resolvePickTarget(e.clientX, e.clientY);
+    if (!el) {
+      sel.pickPreviewEl = null;
+      if (sel.rect) renderSelection(sel.rect, "locked");
+      return;
+    }
+
+    sel.pickPreviewEl = el;
+    renderLockedPickSelection();
+  }
+
+  async function onPickAddClick(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+
+    const el = resolvePickTarget(e.clientX, e.clientY);
+    if (!el) return;
+
+    sel.pickPreviewEl = null;
+    await addPickElement(el);
+  }
+
   function hideCaptureChrome() {
     overlay()?.style.setProperty("visibility", "hidden", "important");
     selectionEl()?.style.setProperty("visibility", "hidden", "important");
@@ -485,7 +722,9 @@
   }
 
   function onHoverMove(e) {
-    if (!sel.active || sel.phase !== "hover") return;
+    if (!sel.active || sel.captureInProgress) return;
+    if (sel.phase === "pick-add") return onPickAddMove(e);
+    if (sel.phase !== "hover") return;
 
     if (sel.draw.pending && canFreestyleDraw()) {
       const dx = e.clientX - sel.draw.pending.x;
@@ -528,11 +767,11 @@
     }
 
     setOverlayDim(false);
-    renderSelection(rectFromDomRect(el.getBoundingClientRect()), "hover");
+    renderSelection(rectFromElement(el), "hover");
   }
 
   async function onHoverClick(e) {
-    if (!sel.active || sel.mode === "freestyle") return;
+    if (!sel.active || sel.captureInProgress || sel.mode === "freestyle") return;
     if (isLassoChrome(e.target)) return;
 
     if (sel.draw.suppressClick) {
@@ -540,7 +779,13 @@
       return;
     }
 
-    if (sel.phase !== "hover" || sel.draw.pending || sel.draw.active) return;
+    if (sel.phase === "pick-add") {
+      if (!e.shiftKey) return;
+      return onPickAddClick(e);
+    }
+
+    if (isLockedPhase()) return;
+    if (sel.draw.pending || sel.draw.active) return;
 
     e.preventDefault();
     e.stopPropagation();
@@ -549,26 +794,17 @@
     const el = sel.hoverTarget || resolvePickTarget(e.clientX, e.clientY);
     if (!el) return;
 
-    const domRect = el.getBoundingClientRect();
-    const vh = window.innerHeight;
-    const vw = window.innerWidth;
-    const outOfView =
-      domRect.top < 0 ||
-      domRect.left < 0 ||
-      domRect.bottom > vh ||
-      domRect.right > vw;
-
-    if (outOfView) {
-      el.scrollIntoView({ block: "nearest", inline: "nearest" });
-      await new Promise((r) => setTimeout(r, PICK_SCROLL_WAIT_MS));
-    }
-
-    lockSelection(rectFromDomRect(el.getBoundingClientRect()));
+    await ensureElementInView(el);
+    lockSelection(rectFromElement(el), el);
   }
 
-  function lockSelection(rect) {
-    sel.phase = "locked";
+  function lockSelection(rect, element = null) {
+    sel.phase = sel.mode === "pick" ? "pick-add" : "locked";
     sel.userResized = false;
+    sel.pickedItems = element ? [snapshotPickItem(element)] : [];
+    sel.pickAnchorDocRect = element ? null : rectToDocument(normalizeRect(rect));
+    sel.pickManualDocRect = null;
+    sel.pickPreviewEl = null;
     sel.rect = normalizeRect(rect);
     sel.draw = { pending: null, active: false, suppressClick: false };
     removePreviewScreen();
@@ -580,7 +816,7 @@
       h.style.display = "block";
     });
 
-    unbindHoverListeners();
+    if (sel.mode !== "pick") unbindHoverListeners();
     renderSelection(sel.rect, "locked");
   }
 
@@ -596,6 +832,7 @@
   }
 
   function renderSelection(rect, phase) {
+    if (!sel.active || !selectionEl()) return;
     if (rect.width <= 0 || rect.height <= 0) {
       selectionEl().style.display = "none";
       return;
@@ -607,8 +844,12 @@
     selectionEl().style.width = rect.width + "px";
     selectionEl().style.height = rect.height + "px";
 
-    sel.dom.dimensions.textContent =
+    let dimensionsLabel =
       Math.round(rect.width) + " \u00d7 " + Math.round(rect.height);
+    if (phase === "locked" && sel.pickedItems.length > 1) {
+      dimensionsLabel += " \u00b7 " + sel.pickedItems.length + " elements";
+    }
+    sel.dom.dimensions.textContent = dimensionsLabel;
     sel.dom.dimensions.style.display = phase === "locked" ? "block" : "none";
 
     if (phase === "locked") {
@@ -652,11 +893,15 @@
   }
 
   function startResize(e, dir) {
-    if (sel.phase !== "locked" || !sel.rect) return;
+    if (!isLockedPhase() || !sel.rect) return;
 
     e.preventDefault();
     e.stopPropagation();
     selectionEl().classList.add("lasso-resizing");
+    sel.pickedItems = [];
+    sel.pickAnchorDocRect = null;
+    sel.pickManualDocRect = null;
+    sel.userResized = true;
 
     const startX = e.clientX;
     const startY = e.clientY;
@@ -678,7 +923,6 @@
         height = start.height - dy;
       }
 
-      sel.userResized = true;
       sel.rect = normalizeRect({ x, y, width, height });
       renderSelection(sel.rect, "locked");
     }
@@ -707,12 +951,20 @@
     }
 
     if (action === "copy" || action === "download") {
-      executeCapture(action);
+      void executeCapture(action);
     }
   }
 
-  function executeCapture(action) {
+  async function executeCapture(action) {
+    await waitForPickAddIdle();
     if (!sel.rect) return;
+
+    if (sel.mode === "pick" && pickCropWouldClip()) {
+      showNotice(
+        "Selection is too large for one screenshot. Pick elements closer together.",
+      );
+      return;
+    }
 
     sel.captureInProgress = true;
     sel.captureScrollY = window.scrollY;
@@ -769,6 +1021,12 @@
     sel.captureScrollY = 0;
     sel.userResized = false;
     sel.hoverTarget = null;
+    sel.pickedItems = [];
+    sel.pickAnchorDocRect = null;
+    sel.pickManualDocRect = null;
+    sel.pickPreviewEl = null;
+    sel.pickAddInFlight = false;
+    sel.pickAddPromise = null;
     sel.draw = { pending: null, active: false, suppressClick: false };
   }
 
@@ -818,7 +1076,16 @@
 
   window.LassoSelection = {
     startCaptureUI,
-    getCaptureParams: () => rectForCapture(sel),
+    getCaptureParams: async () => {
+      await waitForPickAddIdle();
+      if (!sel.userResized && sel.pickedItems.length) {
+        recomputePickRect(window.scrollX, sel.captureScrollY);
+      }
+      if (sel.mode === "pick" && pickCropWouldClip(window.scrollX, sel.captureScrollY)) {
+        return null;
+      }
+      return rectForCapture(sel);
+    },
     hideCaptureChrome,
     cleanupSelection,
     onCaptureCancelled,
