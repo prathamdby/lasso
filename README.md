@@ -1,8 +1,12 @@
+<div align="center">
+
 # Lasso
 
 **Chrome extension for fast, precise screenshots**
 
 `lasso` · Manifest V3 · Chrome / Brave / Edge
+
+</div>
 
 > **Capture without leaving the page.** Pick an element, drag a region, grab the viewport, or stitch a full-page shot. Copy or download from the selection toolbar.
 
