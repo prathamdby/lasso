@@ -16,9 +16,10 @@ const activeCaptures = new Map();
 const previewDebounce = new Map();
 const PREVIEW_DEBOUNCE_MS = 400;
 
-// The tab waiting on the current OCR job. OCR is user-initiated one at a time,
-// so a single slot is enough to route offscreen results back to the right tab.
-let ocrTabId = null;
+// Maps each OCR job id to the tab that requested it, so overlapping jobs from
+// different tabs route their progress/results back to the right place.
+const ocrJobs = new Map();
+let ocrJobSeq = 0;
 let creatingOffscreen = null;
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -94,37 +95,39 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       break;
 
     case LassoMsg.OCR_RUN:
-      // From a content script: crop image to recognize. Route results back to
-      // this tab once the offscreen document returns them.
+      // From a content script: crop image to recognize. Tag a job id so the
+      // offscreen replies route back only to the tab that asked.
       if (sender.tab?.id) {
-        ocrTabId = sender.tab.id;
-        forwardOcr(msg.dataURL).catch((err) => {
+        const jobId = ++ocrJobSeq;
+        ocrJobs.set(jobId, sender.tab.id);
+        forwardOcr(jobId, msg.dataURL).catch((err) => {
           console.error("Lasso OCR failed:", err);
-          relayToOcrTab({
+          relayOcr(jobId, {
             type: LassoMsg.OCR_ERROR,
             message: err?.message || "Text recognition failed",
           });
+          ocrJobs.delete(jobId);
         });
       }
       break;
 
     case LassoMsg.OCR_PROGRESS:
-      // From the offscreen document: forward progress to the waiting tab.
-      relayToOcrTab({ type: LassoMsg.OCR_PROGRESS, progress: msg.progress });
+      // From the offscreen document: forward progress to this job's tab only.
+      relayOcr(msg.jobId, { type: LassoMsg.OCR_PROGRESS, progress: msg.progress });
       break;
 
     case LassoMsg.OCR_RESULT:
-      relayToOcrTab({
+      relayOcr(msg.jobId, {
         type: LassoMsg.OCR_RESULT,
         text: msg.text,
         words: msg.words,
       });
-      ocrTabId = null;
+      ocrJobs.delete(msg.jobId);
       break;
 
     case LassoMsg.OCR_ERROR:
-      relayToOcrTab({ type: LassoMsg.OCR_ERROR, message: msg.message });
-      ocrTabId = null;
+      relayOcr(msg.jobId, { type: LassoMsg.OCR_ERROR, message: msg.message });
+      ocrJobs.delete(msg.jobId);
       break;
 
     default:
@@ -134,9 +137,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   return false;
 });
 
-function relayToOcrTab(message) {
-  if (ocrTabId == null) return;
-  sendToTab(ocrTabId, message).catch(() => {
+function relayOcr(jobId, message) {
+  const tabId = ocrJobs.get(jobId);
+  if (tabId == null) return;
+  sendToTab(tabId, message).catch(() => {
     // tab may be gone
   });
 }
@@ -157,11 +161,12 @@ async function ensureOffscreen() {
   await creatingOffscreen;
 }
 
-async function forwardOcr(dataURL) {
+async function forwardOcr(jobId, dataURL) {
   await ensureOffscreen();
   await chrome.runtime.sendMessage({
     type: LassoMsg.OCR_RUN,
     target: "offscreen",
+    jobId,
     dataURL,
   });
 }

@@ -7,6 +7,10 @@ const VENDOR = "vendor/tesseract";
 // Lazily created and reused across requests so the ~6 MB engine initializes
 // only once per offscreen-document lifetime.
 let workerPromise = null;
+// One Tesseract worker is shared, so requests are serialized through this
+// chain; `activeJobId` tags progress events with the job currently running.
+let queue = Promise.resolve();
+let activeJobId = null;
 
 function getWorker() {
   if (workerPromise) return workerPromise;
@@ -21,9 +25,10 @@ function getWorker() {
     workerBlobURL: false,
     cacheMethod: "none",
     logger: (m) => {
-      if (m.status === "recognizing text") {
+      if (m.status === "recognizing text" && activeJobId != null) {
         chrome.runtime.sendMessage({
           type: LassoMsg.OCR_PROGRESS,
+          jobId: activeJobId,
           progress: m.progress,
         });
       }
@@ -67,14 +72,27 @@ async function runOcr(dataURL) {
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg?.target !== "offscreen" || msg.type !== LassoMsg.OCR_RUN) return;
 
-  runOcr(msg.dataURL)
-    .then(({ text, words }) => {
-      chrome.runtime.sendMessage({ type: LassoMsg.OCR_RESULT, text, words });
-    })
-    .catch((err) => {
+  const { jobId, dataURL } = msg;
+  // Serialize on the shared worker; every reply carries jobId so the background
+  // routes it to the tab that requested it (no cross-tab leakage).
+  queue = queue.then(async () => {
+    activeJobId = jobId;
+    try {
+      const { text, words } = await runOcr(dataURL);
+      chrome.runtime.sendMessage({
+        type: LassoMsg.OCR_RESULT,
+        jobId,
+        text,
+        words,
+      });
+    } catch (err) {
       chrome.runtime.sendMessage({
         type: LassoMsg.OCR_ERROR,
+        jobId,
         message: err?.message || "Text recognition failed",
       });
-    });
+    } finally {
+      activeJobId = null;
+    }
+  });
 });
