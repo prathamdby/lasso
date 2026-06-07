@@ -3,6 +3,9 @@
   window.__lassoPipelineLoaded = true;
 
   let isCaptureActive = () => false;
+  // True while the selection still exists; goes false once the user cancels and
+  // the UI is torn down, so we can abort an in-flight crop/stitch.
+  let isActive = () => true;
   let onCaptureComplete = () => {};
 
   const EXPORT_DEFAULTS = { format: "png", quality: 0.92 };
@@ -15,6 +18,7 @@
 
   function init(deps) {
     isCaptureActive = deps.isCaptureActive;
+    if (deps.isActive) isActive = deps.isActive;
     onCaptureComplete = deps.onCaptureComplete;
   }
 
@@ -118,7 +122,9 @@
 
   async function startOcr(blob) {
     const dataURL = await blobToDataUrl(blob);
-    chrome.runtime.sendMessage({ type: LassoMsg.OCR_RUN, dataURL });
+    // Awaited so a failed dispatch rejects here instead of leaving the UI stuck
+    // on "Recognizing…" (the text bar is only shown after this resolves).
+    await chrome.runtime.sendMessage({ type: LassoMsg.OCR_RUN, dataURL });
   }
 
   async function handleCropResult({ dataURL, rect, devicePixelRatio, action }) {
@@ -128,6 +134,9 @@
     try {
       const out = outputFor(action, await getExportSettings());
       const blob = await cropDataUrl(dataURL, rect, devicePixelRatio, out);
+      // The user may have cancelled while we were cropping; don't export or
+      // start OCR (which would reopen the text UI) for an aborted capture.
+      if (!isActive()) return;
       if (action === "ocr") {
         await startOcr(blob);
         onCaptureComplete({ ocrStarted: true });
@@ -231,6 +240,8 @@
         );
       }
 
+      // Abort if the user cancelled during the scroll/stitch.
+      if (!isActive()) return;
       if (action === "ocr") {
         await startOcr(blob);
         onCaptureComplete({ ocrStarted: true, truncated: !!truncated });

@@ -223,6 +223,9 @@
   }
 
   function startCaptureUI({ mode, hideFixed, preview = false }) {
+    // Dismiss any leftover text overlay/bar from a prior OCR (the selection may
+    // already be inactive, so cleanupSelection alone wouldn't catch it).
+    closeTextUi();
     if (sel.active) cleanupSelection();
 
     sel.active = true;
@@ -1490,6 +1493,12 @@
 
   function onOcrStarted(options = {}) {
     sel.captureInProgress = false;
+    // The capture may have been cancelled after OCR was dispatched; if the
+    // selection is already gone, don't reopen the text UI.
+    if (!sel.active) {
+      pendingOcr = null;
+      return;
+    }
     window.LassoFixed.restoreFixedElements();
     const target = pendingOcr || {
       rect: { x: 0, y: 0, width: 320, height: 0 },
@@ -1547,6 +1556,7 @@
     if (!sel.active && !sel.captureInProgress) return;
 
     sel.captureInProgress = false;
+    pendingOcr = null;
     chrome.runtime.sendMessage({ type: LassoMsg.CANCEL_CAPTURE });
     window.LassoFixed.restoreFixedElements();
     cleanupSelection();
@@ -1670,6 +1680,7 @@
     onOcrResult,
     onOcrError,
     isCaptureActive: () => sel.captureInProgress,
+    isActive: () => sel.active,
     markCaptureInactive,
   };
 })();

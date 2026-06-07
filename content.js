@@ -74,6 +74,7 @@
 
   window.LassoCapture.init({
     isCaptureActive: () => window.LassoSelection.isCaptureActive(),
+    isActive: () => window.LassoSelection.isActive(),
     onCaptureComplete: (options = {}) => {
       if (options.keepUi) {
         window.LassoSelection.markCaptureInactive();
