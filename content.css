@@ -48,17 +48,6 @@ html.lasso-active * {
   border-radius: 2px;
   box-shadow: 0 0 0 9999px rgba(12, 14, 18, 0.72);
   pointer-events: none;
-  transition:
-    top 50ms ease-out,
-    left 50ms ease-out,
-    width 50ms ease-out,
-    height 50ms ease-out,
-    border-color 50ms ease-out,
-    background 50ms ease-out;
-}
-
-#lasso-selection.lasso-resizing {
-  transition: none;
 }
 
 #lasso-selection.lasso-hover {
@@ -161,10 +150,6 @@ html.lasso-active * {
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
-  transition:
-    background 0.15s ease,
-    border-color 0.15s ease,
-    color 0.15s ease;
 }
 
 #lasso-toolbar button:hover {
@@ -278,7 +263,6 @@ html.lasso-active * {
   cursor: pointer;
   text-align: left;
   min-width: 148px;
-  transition: background 0.15s ease;
 }
 
 .lasso-preview-action + .lasso-preview-action {
@@ -368,9 +352,6 @@ html.lasso-active * {
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  transition:
-    background 0.15s ease,
-    border-color 0.15s ease;
 }
 
 .lasso-preview-cancel:hover {

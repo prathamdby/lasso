@@ -2,6 +2,76 @@
   if (window.__lassoLoaded) return;
   window.__lassoLoaded = true;
 
+  const SCROLL_SETTLE_FRAMES = 10;
+  const SCROLL_STABLE_FRAMES = 3;
+  const SCROLL_EPSILON = 1;
+
+  function nextAnimationFrame() {
+    return new Promise((resolve) => requestAnimationFrame(resolve));
+  }
+
+  function maxScrollX() {
+    return Math.max(
+      0,
+      document.documentElement.scrollWidth - window.innerWidth,
+      document.body.scrollWidth - window.innerWidth,
+    );
+  }
+
+  function maxScrollY() {
+    return Math.max(
+      0,
+      document.documentElement.scrollHeight - window.innerHeight,
+      document.body.scrollHeight - window.innerHeight,
+    );
+  }
+
+  function clamp(value, min, max) {
+    return Math.max(min, Math.min(value, max));
+  }
+
+  function isNearScrollPosition(a, b) {
+    return (
+      Math.abs(a.scrollX - b.scrollX) <= SCROLL_EPSILON &&
+      Math.abs(a.scrollY - b.scrollY) <= SCROLL_EPSILON
+    );
+  }
+
+  function currentScroll() {
+    return { scrollX: window.scrollX, scrollY: window.scrollY };
+  }
+
+  async function scrollToPosition({ x = window.scrollX, y = window.scrollY }) {
+    const targetX = clamp(x, 0, maxScrollX());
+    const targetY = clamp(y, 0, maxScrollY());
+    const target = { scrollX: targetX, scrollY: targetY };
+    window.scrollTo({ left: targetX, top: targetY, behavior: "instant" });
+
+    let previous = currentScroll();
+    let stableFrames = 0;
+    for (let frame = 0; frame < SCROLL_SETTLE_FRAMES; frame += 1) {
+      await nextAnimationFrame();
+      const current = currentScroll();
+      if (isNearScrollPosition(current, previous)) {
+        stableFrames += 1;
+      } else {
+        stableFrames = 0;
+      }
+      if (
+        stableFrames >= SCROLL_STABLE_FRAMES &&
+        isNearScrollPosition(current, target)
+      ) {
+        return { ok: true, ...current };
+      }
+      previous = current;
+    }
+
+    return {
+      ok: false,
+      ...previous,
+    };
+  }
+
   window.LassoCapture.init({
     isCaptureActive: () => window.LassoSelection.isCaptureActive(),
     onCaptureComplete: (options = {}) => {
@@ -35,9 +105,10 @@
         break;
 
       case LassoMsg.SCROLL_TO:
-        window.scrollTo(0, msg.y);
-        sendResponse({ ok: true });
-        break;
+        scrollToPosition(msg)
+          .then(sendResponse)
+          .catch(() => sendResponse({ ok: false }));
+        return true;
 
       case LassoMsg.START_SELECTION:
         window.LassoSelection.startCaptureUI({

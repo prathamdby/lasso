@@ -1,6 +1,5 @@
 importScripts("messages.js");
 
-const SCROLL_WAIT_MS = 150;
 const FULLPAGE_SLICE_LIMIT = 500;
 const WARM_TAB_CONCURRENCY = 5;
 
@@ -130,13 +129,17 @@ function sendToTab(tabId, message) {
   return chrome.tabs.sendMessage(tabId, message);
 }
 
-function delay(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 async function prepareTabForCapture(tabId) {
   const response = await sendToTab(tabId, { type: LassoMsg.PREPARE_CAPTURE });
   if (!response?.ok) throw new Error("Capture preparation failed");
+}
+
+async function scrollTabTo(tabId, y) {
+  const response = await sendToTab(tabId, { type: LassoMsg.SCROLL_TO, y });
+  if (!response?.ok && !Number.isFinite(response?.scrollY)) {
+    throw new Error("Page did not settle after scrolling");
+  }
+  return response;
 }
 
 async function handleCapture(mode, hideFixed) {
@@ -252,7 +255,6 @@ async function handleSelectionCapture(tabId, mode, hideFixed, action) {
 
       if (hideFixed) {
         await sendToTab(tabId, { type: LassoMsg.HIDE_FIXED_ELEMENTS });
-        await delay(100);
         fixedHidden = true;
       }
 
@@ -322,15 +324,15 @@ async function captureFullPage(
   while (y < totalHeight) {
     if (await bailIfCancelled(tab.id, tab, hideFixed, originalScrollY)) return;
 
-    await sendToTab(tab.id, { type: LassoMsg.SCROLL_TO, y });
-    await delay(SCROLL_WAIT_MS);
+    const scroll = await scrollTabTo(tab.id, y);
+    const captureY = Number.isFinite(scroll.scrollY) ? scroll.scrollY : y;
 
     if (await bailIfCancelled(tab.id, tab, hideFixed, originalScrollY)) return;
 
     const dataURL = await chrome.tabs.captureVisibleTab(tab.windowId, {
       format: "png",
     });
-    captures.push({ dataURL, y });
+    captures.push({ dataURL, y: captureY });
     y += viewportHeight;
 
     if (captures.length >= FULLPAGE_SLICE_LIMIT) {
