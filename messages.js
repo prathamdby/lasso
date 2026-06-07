@@ -16,4 +16,8 @@ const LassoMsg = Object.freeze({
   RESTORE_FIXED_ELEMENTS: "restoreFixedElements",
   CAPTURE_CANCELLED: "captureCancelled",
   CAPTURE_FAILED: "captureFailed",
+  OCR_RUN: "ocrRun",
+  OCR_PROGRESS: "ocrProgress",
+  OCR_RESULT: "ocrResult",
+  OCR_ERROR: "ocrError",
 });

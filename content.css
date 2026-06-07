@@ -225,6 +225,128 @@ html.lasso-active * {
   flex-shrink: 0;
 }
 
+#lasso-text-layer {
+  position: fixed;
+  z-index: 2147483646;
+  overflow: hidden;
+  cursor: text;
+  pointer-events: auto;
+  /* Outline the region, but force the fill transparent so a stale/old
+     stylesheet can never turn it into a solid dark box. */
+  background: none !important;
+  border: 1px solid rgba(59, 140, 255, 0.65) !important;
+  border-radius: 3px !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  padding: 0 !important;
+  /* Override stale card constraints (old max-height: 50vh clipped it to half). */
+  min-width: 0 !important;
+  max-width: none !important;
+  min-height: 0 !important;
+  max-height: none !important;
+}
+
+.lasso-text-word {
+  position: absolute;
+  margin: 0;
+  padding: 0;
+  color: transparent;
+  white-space: pre;
+  line-height: 1;
+  overflow: hidden;
+  user-select: text;
+  -webkit-user-select: text;
+  /* Underline only; force the fill off so a stale stylesheet can't keep the
+     old full-word highlight. ::selection still highlights what you drag. */
+  background: none !important;
+  box-shadow: inset 0 -1.5px 0 rgba(59, 140, 255, 0.6) !important;
+}
+
+.lasso-text-word::selection {
+  /* Normal translucent highlight on the words you actually drag-select. */
+  background: rgba(59, 140, 255, 0.5);
+}
+
+#lasso-text-bar {
+  position: fixed;
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: #151820;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+  font-family:
+    "Inter",
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
+  color: #f3f5f8;
+}
+
+.lasso-text-status {
+  padding-left: 4px;
+  font-size: 11px;
+  color: #8b93a3;
+  white-space: nowrap;
+}
+
+.lasso-text-status:empty {
+  display: none;
+}
+
+.lasso-text-copy {
+  padding: 6px 12px;
+  border: 1px solid rgba(59, 140, 255, 0.55);
+  border-radius: 8px;
+  background: #3b8cff;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    opacity 0.15s ease;
+}
+
+.lasso-text-copy:hover {
+  background: #2f7ef0;
+}
+
+.lasso-text-copy:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.lasso-text-close {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #8b93a3;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.lasso-text-close:hover {
+  background: #1c2130;
+  color: #f3f5f8;
+}
+
+.lasso-text-close svg {
+  width: 15px;
+  height: 15px;
+}
+
 #lasso-preview-screen {
   position: fixed;
   inset: 0;

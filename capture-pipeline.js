@@ -31,9 +31,10 @@
   }
 
   // The async clipboard reliably accepts only PNG, so copies stay lossless
-  // PNG; the chosen format and quality apply to downloads.
+  // PNG; OCR also uses PNG for the cleanest recognition. The chosen format and
+  // quality apply to downloads.
   function outputFor(action, settings) {
-    if (action === "copy") {
+    if (action === "copy" || action === "ocr") {
       return { format: "png", mime: "image/png", quality: undefined };
     }
     const format = settings.format;
@@ -106,6 +107,20 @@
     }
   }
 
+  function blobToDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  async function startOcr(blob) {
+    const dataURL = await blobToDataUrl(blob);
+    chrome.runtime.sendMessage({ type: LassoMsg.OCR_RUN, dataURL });
+  }
+
   async function handleCropResult({ dataURL, rect, devicePixelRatio, action }) {
     if (!isCaptureActive()) return;
     onCaptureComplete({ keepUi: true });
@@ -113,8 +128,13 @@
     try {
       const out = outputFor(action, await getExportSettings());
       const blob = await cropDataUrl(dataURL, rect, devicePixelRatio, out);
-      await exportBlob(blob, action, out);
-      onCaptureComplete({ finalize: true });
+      if (action === "ocr") {
+        await startOcr(blob);
+        onCaptureComplete({ ocrStarted: true });
+      } else {
+        await exportBlob(blob, action, out);
+        onCaptureComplete({ finalize: true });
+      }
     } catch (err) {
       onCaptureComplete({
         finalize: true,
@@ -211,8 +231,13 @@
         );
       }
 
-      await exportBlob(blob, action, out);
-      onCaptureComplete({ finalize: true, truncated: !!truncated });
+      if (action === "ocr") {
+        await startOcr(blob);
+        onCaptureComplete({ ocrStarted: true, truncated: !!truncated });
+      } else {
+        await exportBlob(blob, action, out);
+        onCaptureComplete({ finalize: true, truncated: !!truncated });
+      }
     } catch (err) {
       onCaptureComplete({
         finalize: true,

@@ -16,6 +16,11 @@ const activeCaptures = new Map();
 const previewDebounce = new Map();
 const PREVIEW_DEBOUNCE_MS = 400;
 
+// The tab waiting on the current OCR job. OCR is user-initiated one at a time,
+// so a single slot is enough to route offscreen results back to the right tab.
+let ocrTabId = null;
+let creatingOffscreen = null;
+
 chrome.runtime.onInstalled.addListener(() => {
   warmOpenTabs().catch(() => {});
 });
@@ -88,12 +93,78 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
       break;
 
+    case LassoMsg.OCR_RUN:
+      // From a content script: crop image to recognize. Route results back to
+      // this tab once the offscreen document returns them.
+      if (sender.tab?.id) {
+        ocrTabId = sender.tab.id;
+        forwardOcr(msg.dataURL).catch((err) => {
+          console.error("Lasso OCR failed:", err);
+          relayToOcrTab({
+            type: LassoMsg.OCR_ERROR,
+            message: err?.message || "Text recognition failed",
+          });
+        });
+      }
+      break;
+
+    case LassoMsg.OCR_PROGRESS:
+      // From the offscreen document: forward progress to the waiting tab.
+      relayToOcrTab({ type: LassoMsg.OCR_PROGRESS, progress: msg.progress });
+      break;
+
+    case LassoMsg.OCR_RESULT:
+      relayToOcrTab({
+        type: LassoMsg.OCR_RESULT,
+        text: msg.text,
+        words: msg.words,
+      });
+      ocrTabId = null;
+      break;
+
+    case LassoMsg.OCR_ERROR:
+      relayToOcrTab({ type: LassoMsg.OCR_ERROR, message: msg.message });
+      ocrTabId = null;
+      break;
+
     default:
       break;
   }
 
   return false;
 });
+
+function relayToOcrTab(message) {
+  if (ocrTabId == null) return;
+  sendToTab(ocrTabId, message).catch(() => {
+    // tab may be gone
+  });
+}
+
+async function ensureOffscreen() {
+  if (await chrome.offscreen.hasDocument()) return;
+  if (!creatingOffscreen) {
+    creatingOffscreen = chrome.offscreen
+      .createDocument({
+        url: "offscreen.html",
+        reasons: ["WORKERS"],
+        justification: "Run on-device OCR (Tesseract) off the service worker.",
+      })
+      .finally(() => {
+        creatingOffscreen = null;
+      });
+  }
+  await creatingOffscreen;
+}
+
+async function forwardOcr(dataURL) {
+  await ensureOffscreen();
+  await chrome.runtime.sendMessage({
+    type: LassoMsg.OCR_RUN,
+    target: "offscreen",
+    dataURL,
+  });
+}
 
 function isCancelled(tabId) {
   return activeCaptures.get(tabId)?.cancelled === true;

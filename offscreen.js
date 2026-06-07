@@ -1,0 +1,80 @@
+// Runs Tesseract OCR in an offscreen document. Content scripts cannot create
+// an extension-origin Worker on an arbitrary page (same-origin policy), and the
+// service worker cannot host WASM workers, so the heavy lifting lives here.
+
+const VENDOR = "vendor/tesseract";
+
+// Lazily created and reused across requests so the ~6 MB engine initializes
+// only once per offscreen-document lifetime.
+let workerPromise = null;
+
+function getWorker() {
+  if (workerPromise) return workerPromise;
+
+  workerPromise = Tesseract.createWorker("eng", 1, {
+    workerPath: chrome.runtime.getURL(`${VENDOR}/worker.min.js`),
+    corePath: chrome.runtime.getURL(`${VENDOR}/tesseract-core-simd-lstm.wasm.js`),
+    langPath: chrome.runtime.getURL(VENDOR),
+    gzip: true,
+    // MV3 CSP blocks blob: workers, so load the worker from the packaged file
+    // and skip IndexedDB caching of the language data.
+    workerBlobURL: false,
+    cacheMethod: "none",
+    logger: (m) => {
+      if (m.status === "recognizing text") {
+        chrome.runtime.sendMessage({
+          type: LassoMsg.OCR_PROGRESS,
+          progress: m.progress,
+        });
+      }
+    },
+  }).catch((err) => {
+    // Reset so a later request can retry initialization.
+    workerPromise = null;
+    throw err;
+  });
+
+  return workerPromise;
+}
+
+async function runOcr(dataURL) {
+  const worker = await getWorker();
+  const { data } = await worker.recognize(dataURL, {}, { blocks: true });
+
+  // Collect per-word boxes so the content script can lay each word over the
+  // image at its real position. bbox is in recognized-image pixels.
+  const words = [];
+  const pushWord = (w) => {
+    if (w?.text && w.text.trim() && w.bbox) {
+      words.push({ text: w.text, bbox: w.bbox });
+    }
+  };
+  if (Array.isArray(data.words) && data.words.length) {
+    data.words.forEach(pushWord);
+  } else {
+    for (const block of data.blocks || []) {
+      for (const para of block.paragraphs || []) {
+        for (const line of para.lines || []) {
+          (line.words || []).forEach(pushWord);
+        }
+      }
+    }
+  }
+
+  return { text: (data.text || "").trim(), words };
+}
+
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg?.target !== "offscreen" || msg.type !== LassoMsg.OCR_RUN) return;
+
+  runOcr(msg.dataURL)
+    .then(({ text, words }) => {
+      chrome.runtime.sendMessage({ type: LassoMsg.OCR_RESULT, text, words });
+    })
+    .catch((err) => {
+      chrome.runtime.sendMessage({
+        type: LassoMsg.OCR_ERROR,
+        message: err?.message || "Text recognition failed",
+      });
+    });
+});

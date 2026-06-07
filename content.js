@@ -79,6 +79,10 @@
         window.LassoSelection.markCaptureInactive();
         return;
       }
+      if (options.ocrStarted) {
+        window.LassoSelection.onOcrStarted(options);
+        return;
+      }
       if (options.finalize) {
         window.LassoSelection.cleanupSelection(options);
       }
@@ -174,6 +178,21 @@
 
       case LassoMsg.CAPTURE_FAILED:
         window.LassoSelection.onCaptureFailed(msg.message);
+        sendResponse({ ok: true });
+        break;
+
+      case LassoMsg.OCR_PROGRESS:
+        window.LassoSelection.onOcrProgress(msg.progress);
+        sendResponse({ ok: true });
+        break;
+
+      case LassoMsg.OCR_RESULT:
+        window.LassoSelection.onOcrResult(msg.text, msg.words);
+        sendResponse({ ok: true });
+        break;
+
+      case LassoMsg.OCR_ERROR:
+        window.LassoSelection.onOcrError(msg.message);
         sendResponse({ ok: true });
         break;
 
