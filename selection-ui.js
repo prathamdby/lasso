@@ -1549,10 +1549,9 @@
   }
 
   function onOcrError(message) {
-    if (!textUi) {
-      showNotice(message || "Text recognition failed");
-      return;
-    }
+    // The text bar was dismissed before the job finished; don't surface a
+    // spurious failure notice for a result the user already walked away from.
+    if (!textUi) return;
     textUi.status.textContent = message || "Text recognition failed";
     textUi.copyBtn.disabled = true;
   }

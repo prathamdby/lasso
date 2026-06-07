@@ -4,6 +4,25 @@
 
 const VENDOR = "vendor/tesseract";
 
+// WASM SIMD is near-universal but not guaranteed; pick the SIMD core when it's
+// supported and fall back to the plain LSTM core otherwise.
+function hasWasmSimd() {
+  try {
+    return WebAssembly.validate(
+      new Uint8Array([
+        0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123, 3, 2, 1, 0, 10,
+        10, 1, 8, 0, 65, 0, 253, 15, 253, 98, 11,
+      ]),
+    );
+  } catch {
+    return false;
+  }
+}
+
+const CORE_FILE = hasWasmSimd()
+  ? "tesseract-core-simd-lstm.wasm.js"
+  : "tesseract-core-lstm.wasm.js";
+
 // Lazily created and reused across requests so the ~6 MB engine initializes
 // only once per offscreen-document lifetime.
 let workerPromise = null;
@@ -17,7 +36,7 @@ function getWorker() {
 
   workerPromise = Tesseract.createWorker("eng", 1, {
     workerPath: chrome.runtime.getURL(`${VENDOR}/worker.min.js`),
-    corePath: chrome.runtime.getURL(`${VENDOR}/tesseract-core-simd-lstm.wasm.js`),
+    corePath: chrome.runtime.getURL(`${VENDOR}/${CORE_FILE}`),
     langPath: chrome.runtime.getURL(VENDOR),
     gzip: true,
     // MV3 CSP blocks blob: workers, so load the worker from the packaged file
