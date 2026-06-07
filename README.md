@@ -98,7 +98,7 @@ flowchart LR
 | `scripting` | Inject capture UI when needed. |
 | `downloads` | Save PNG files. |
 | `clipboardWrite` | Copy PNG to clipboard. |
-| `storage` | Remember your download format and quality settings. |
+| `storage` | Remember your selected download format. |
 | `<all_urls>` | Run on any site you screenshot and handle the global hotkey without opening the popup first. |
 
 Lasso does not send page content to any external service.

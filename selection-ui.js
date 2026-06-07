@@ -37,6 +37,7 @@
     pickPreviewEl: null,
     pickAddInFlight: false,
     pickAddPromise: null,
+    formatPicked: false,
     draw: { pending: null, active: false, suppressClick: false },
     dom: {
       overlay: null,
@@ -193,6 +194,7 @@
     sel.pickPreviewEl = null;
     sel.pickAddInFlight = false;
     sel.pickAddPromise = null;
+    sel.formatPicked = false;
     sel.draw = { pending: null, active: false, suppressClick: false };
 
     buildSelectionChrome();
@@ -392,6 +394,10 @@
   function syncToolbarFormat() {
     try {
       chrome.storage.local.get("lassoFormat", ({ lassoFormat }) => {
+        // This async read can resolve after a fast chip click or after the
+        // toolbar was torn down/rebuilt. In both cases the user's choice (or
+        // the new session) wins, so don't overwrite it with the stored value.
+        if (sel.formatPicked || !sel.dom.toolbar) return;
         highlightFormat(
           FORMAT_CHIPS.includes(lassoFormat) ? lassoFormat : DEFAULT_FORMAT,
         );
@@ -403,6 +409,7 @@
 
   function selectFormat(format) {
     if (!FORMAT_CHIPS.includes(format)) return;
+    sel.formatPicked = true;
     highlightFormat(format);
     // The capture pipeline reads this at export time, so the choice applies
     // to the next download (and persists for future captures).
@@ -1096,6 +1103,7 @@
     sel.captureInProgress = false;
     sel.captureScrollY = 0;
     sel.userResized = false;
+    sel.formatPicked = false;
     sel.hoverTarget = null;
     sel.pickedItems = [];
     sel.pickAnchorDocRect = null;
