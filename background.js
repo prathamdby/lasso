@@ -85,9 +85,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           msg.mode,
           msg.hideFixed,
           msg.action,
-        ).catch((err) =>
-          console.error("Lasso selection capture failed:", err),
-        );
+        ).catch((err) => console.error("Lasso selection capture failed:", err));
       }
       break;
 
