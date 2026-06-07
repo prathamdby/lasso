@@ -17,6 +17,8 @@
     w: "w-resize",
   };
   const INLINE_TAGS = /^(SPAN|A|TIME|LABEL|B|I|EM|STRONG|CODE|SMALL)$/i;
+  const FORMAT_CHIPS = ["png", "jpeg", "webp"];
+  const DEFAULT_FORMAT = "png";
 
   const sel = {
     active: false,
@@ -343,6 +345,12 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
       </button>
       <span class="lasso-toolbar-divider" aria-hidden="true"></span>
+      <div class="lasso-format-group" role="group" aria-label="Download format">
+        <button type="button" class="lasso-format-chip" data-format="png" aria-pressed="true">PNG</button>
+        <button type="button" class="lasso-format-chip" data-format="jpeg" aria-pressed="false">JPEG</button>
+        <button type="button" class="lasso-format-chip" data-format="webp" aria-pressed="false">WebP</button>
+      </div>
+      <span class="lasso-toolbar-divider" aria-hidden="true"></span>
       <button type="button" class="lasso-btn-copy" data-action="copy" aria-label="Copy">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
         Copy
@@ -370,6 +378,39 @@
     document.addEventListener("keydown", onSelectionKeyDown, true);
     bindFreezeListeners();
     bindSelectionGuardListeners();
+    syncToolbarFormat();
+  }
+
+  function highlightFormat(format) {
+    sel.dom.toolbar?.querySelectorAll(".lasso-format-chip").forEach((chip) => {
+      const active = chip.dataset.format === format;
+      chip.classList.toggle("is-active", active);
+      chip.setAttribute("aria-pressed", active ? "true" : "false");
+    });
+  }
+
+  function syncToolbarFormat() {
+    try {
+      chrome.storage.local.get("lassoFormat", ({ lassoFormat }) => {
+        highlightFormat(
+          FORMAT_CHIPS.includes(lassoFormat) ? lassoFormat : DEFAULT_FORMAT,
+        );
+      });
+    } catch {
+      highlightFormat(DEFAULT_FORMAT);
+    }
+  }
+
+  function selectFormat(format) {
+    if (!FORMAT_CHIPS.includes(format)) return;
+    highlightFormat(format);
+    // The capture pipeline reads this at export time, so the choice applies
+    // to the next download (and persists for future captures).
+    try {
+      chrome.storage.local.set({ lassoFormat: format });
+    } catch {
+      // storage unavailable; highlight still reflects the choice
+    }
   }
 
   function isLockedPhase() {
@@ -914,7 +955,8 @@
 
     sel.dom.toolbar.classList.remove("lasso-toolbar-fixed");
     const gap = 8;
-    sel.dom.toolbar.style.left = Math.max(0, rect.width - 300) + "px";
+    const toolbarWidth = sel.dom.toolbar.offsetWidth || 300;
+    sel.dom.toolbar.style.left = Math.max(0, rect.width - toolbarWidth) + "px";
     sel.dom.toolbar.style.top = rect.height + gap + "px";
   }
 
@@ -964,6 +1006,14 @@
   }
 
   function onToolbarClick(e) {
+    const chip = e.target.closest(".lasso-format-chip");
+    if (chip) {
+      e.preventDefault();
+      e.stopPropagation();
+      selectFormat(chip.dataset.format);
+      return;
+    }
+
     const btn = e.target.closest("button[data-action]");
     if (!btn) return;
 
