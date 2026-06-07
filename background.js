@@ -85,9 +85,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           msg.mode,
           msg.hideFixed,
           msg.action,
-        ).catch((err) =>
-          console.error("Lasso selection capture failed:", err),
-        );
+        ).catch((err) => console.error("Lasso selection capture failed:", err));
       }
       break;
 
@@ -134,6 +132,11 @@ function sendToTab(tabId, message) {
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function prepareTabForCapture(tabId) {
+  const response = await sendToTab(tabId, { type: LassoMsg.PREPARE_CAPTURE });
+  if (!response?.ok) throw new Error("Capture preparation failed");
 }
 
 async function handleCapture(mode, hideFixed) {
@@ -263,6 +266,8 @@ async function handleSelectionCapture(tabId, mode, hideFixed, action) {
         return;
       }
 
+      await prepareTabForCapture(tabId);
+
       const dataURL = await chrome.tabs.captureVisibleTab(tab.windowId, {
         format: "png",
       });
@@ -303,8 +308,7 @@ async function captureFullPage(
   action,
   originalScrollY,
 ) {
-  await sendToTab(tab.id, { type: LassoMsg.PREPARE_CAPTURE });
-  await delay(50);
+  await prepareTabForCapture(tab.id);
 
   if (await bailIfCancelled(tab.id, tab, hideFixed, originalScrollY)) return;
 

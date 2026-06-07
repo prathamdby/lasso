@@ -46,13 +46,13 @@ In preview mode you can hover to pick an element, **Shift+click** to add more el
 
 ## Capture modes
 
-| Mode | How to start | What it does |
-| --- | --- | --- |
-| **Preview** | `Ctrl+Shift+S` | Dimmed overlay. Pick (Shift+click to add elements), freestyle draw, visible, or full page. |
-| **Visible** | Popup → Visible | Locks the current viewport. Resize, then copy or download. |
-| **Full page** | Popup → Full page | Scrolls and stitches the page. Optional crop before export. |
-| **Pick** | Popup → Pick | Hover elements, click to lock. Shift+click to add more into one bounding box. |
-| **Freestyle** | Popup → Freestyle | Drag a custom box on the page. |
+| Mode          | How to start      | What it does                                                                               |
+| ------------- | ----------------- | ------------------------------------------------------------------------------------------ |
+| **Preview**   | `Ctrl+Shift+S`    | Dimmed overlay. Pick (Shift+click to add elements), freestyle draw, visible, or full page. |
+| **Visible**   | Popup → Visible   | Locks the current viewport. Resize, then copy or download.                                 |
+| **Full page** | Popup → Full page | Scrolls and stitches the page. Optional crop before export.                                |
+| **Pick**      | Popup → Pick      | Hover elements, click to lock. Shift+click to add more into one bounding box.              |
+| **Freestyle** | Popup → Freestyle | Drag a custom box on the page.                                                             |
 
 After a selection is locked, use the toolbar to **copy** (`Ctrl+C`) or **download** (`Ctrl+S`). Press `Esc` to cancel. Multi-element picks must fit in one viewport shot; if the combined box is too large, Lasso shows an error instead of cropping silently.
 
@@ -64,12 +64,12 @@ Copies to the clipboard are always PNG — the async clipboard reliably accepts 
 
 ## Keyboard shortcuts
 
-| Shortcut | Action |
-| --- | --- |
-| `Ctrl+Shift+S` / `Cmd+Shift+S` | Open capture preview |
-| `Esc` | Cancel capture |
-| `Ctrl+C` / `Cmd+C` | Copy locked selection (while toolbar is active) |
-| `Ctrl+S` / `Cmd+S` | Download locked selection (while toolbar is active) |
+| Shortcut                       | Action                                              |
+| ------------------------------ | --------------------------------------------------- |
+| `Ctrl+Shift+S` / `Cmd+Shift+S` | Open capture preview                                |
+| `Esc`                          | Cancel capture                                      |
+| `Ctrl+C` / `Cmd+C`             | Copy locked selection (while toolbar is active)     |
+| `Ctrl+S` / `Cmd+S`             | Download locked selection (while toolbar is active) |
 
 If `Ctrl+Shift+S` conflicts with a browser shortcut, change or disable the conflicting binding in your browser shortcut settings, or rebind Lasso at `chrome://extensions/shortcuts`.
 
@@ -92,14 +92,13 @@ flowchart LR
 
 ## Permissions
 
-| Permission | Why |
-| --- | --- |
-| `activeTab` | Capture the tab you are working in. |
-| `scripting` | Inject capture UI when needed. |
-| `downloads` | Save PNG files. |
-| `clipboardWrite` | Copy PNG to clipboard. |
-| `storage` | Remember your selected download format. |
-| `<all_urls>` | Run on any site you screenshot and handle the global hotkey without opening the popup first. |
+| Permission       | Why                                                                                          |
+| ---------------- | -------------------------------------------------------------------------------------------- |
+| `activeTab`      | Capture the tab you are working in.                                                          |
+| `scripting`      | Inject capture UI when needed.                                                               |
+| `downloads`      | Save PNG files.                                                                              |
+| `clipboardWrite` | Copy PNG to clipboard.                                                                       |
+| `<all_urls>`     | Run on any site you screenshot and handle the global hotkey without opening the popup first. |
 
 Lasso does not send page content to any external service.
 
@@ -107,19 +106,19 @@ Lasso does not send page content to any external service.
 
 Project layout:
 
-| File | Role |
-| --- | --- |
-| `manifest.json` | Extension manifest (MV3). |
-| `messages.js` | Shared message type constants. |
-| `background.js` | Capture orchestration and downloads. |
-| `content.js` | Content-script entry and message dispatch. |
-| `capture-pipeline.js` | Crop, stitch, and export. |
-| `fixed-elements.js` | Hide and restore fixed/sticky elements. |
-| `selection-ui.js` | Overlay, selection, and toolbar UI. |
-| `content.css` | In-page capture chrome. |
-| `hotkey.js` | `Ctrl+Shift+S` listener on each tab. |
-| `popup.html` / `popup.js` / `popup.css` | Toolbar popup. |
-| `icons/` | Extension icons (`icon.svg` source, PNG sizes for the store). |
+| File                                    | Role                                                          |
+| --------------------------------------- | ------------------------------------------------------------- |
+| `manifest.json`                         | Extension manifest (MV3).                                     |
+| `messages.js`                           | Shared message type constants.                                |
+| `background.js`                         | Capture orchestration and downloads.                          |
+| `content.js`                            | Content-script entry and message dispatch.                    |
+| `capture-pipeline.js`                   | Crop, stitch, and export.                                     |
+| `fixed-elements.js`                     | Hide and restore fixed/sticky elements.                       |
+| `selection-ui.js`                       | Overlay, selection, and toolbar UI.                           |
+| `content.css`                           | In-page capture chrome.                                       |
+| `hotkey.js`                             | `Ctrl+Shift+S` listener on each tab.                          |
+| `popup.html` / `popup.js` / `popup.css` | Toolbar popup.                                                |
+| `icons/`                                | Extension icons (`icon.svg` source, PNG sizes for the store). |
 
 Regenerate PNG icons from the SVG source (requires `librsvg`):
 

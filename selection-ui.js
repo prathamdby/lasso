@@ -609,10 +609,14 @@
       return documentRectToViewport(item.rect, scrollX, scrollY);
     });
     if (sel.pickAnchorDocRect) {
-      rects.push(documentRectToViewport(sel.pickAnchorDocRect, scrollX, scrollY));
+      rects.push(
+        documentRectToViewport(sel.pickAnchorDocRect, scrollX, scrollY),
+      );
     }
     if (sel.pickManualDocRect) {
-      rects.push(documentRectToViewport(sel.pickManualDocRect, scrollX, scrollY));
+      rects.push(
+        documentRectToViewport(sel.pickManualDocRect, scrollX, scrollY),
+      );
     } else if (!sel.pickedItems.length && sel.rect) {
       rects.push(sel.rect);
     }
@@ -655,7 +659,10 @@
     if (sel.pickAddPromise) await sel.pickAddPromise;
   }
 
-  function recomputePickRect(scrollX = window.scrollX, scrollY = window.scrollY) {
+  function recomputePickRect(
+    scrollX = window.scrollX,
+    scrollY = window.scrollY,
+  ) {
     const viewUnion = unionRects(pickRectsForUnion(null, scrollX, scrollY));
     if (!viewUnion) return;
 
@@ -784,6 +791,19 @@
     void document.documentElement.offsetHeight;
   }
 
+  function waitForPaint() {
+    return new Promise((resolve) => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(resolve);
+      });
+    });
+  }
+
+  async function prepareCaptureChrome() {
+    hideCaptureChrome();
+    await waitForPaint();
+  }
+
   function onDrawMouseUp(e) {
     if (!sel.active || !canFreestyleDraw() || !sel.draw.pending) return;
     if (sel.phase !== "hover") return;
@@ -865,7 +885,8 @@
   }
 
   async function onHoverClick(e) {
-    if (!sel.active || sel.captureInProgress || sel.mode === "freestyle") return;
+    if (!sel.active || sel.captureInProgress || sel.mode === "freestyle")
+      return;
     if (isLassoChrome(e.target)) return;
 
     if (sel.draw.suppressClick) {
@@ -896,7 +917,9 @@
     sel.phase = sel.mode === "pick" ? "pick-add" : "locked";
     sel.userResized = false;
     sel.pickedItems = element ? [snapshotPickItem(element)] : [];
-    sel.pickAnchorDocRect = element ? null : rectToDocument(normalizeRect(rect));
+    sel.pickAnchorDocRect = element
+      ? null
+      : rectToDocument(normalizeRect(rect));
     sel.pickManualDocRect = null;
     sel.pickPreviewEl = null;
     sel.rect = normalizeRect(rect);
@@ -906,9 +929,11 @@
     sel.dom.hint = null;
 
     selectionEl().className = "lasso-locked";
-    selectionEl().querySelectorAll(".lasso-handle").forEach((h) => {
-      h.style.display = "block";
-    });
+    selectionEl()
+      .querySelectorAll(".lasso-handle")
+      .forEach((h) => {
+        h.style.display = "block";
+      });
 
     if (sel.mode !== "pick") unbindHoverListeners();
     renderSelection(sel.rect, "locked");
@@ -966,11 +991,13 @@
       w: [0, height / 2],
     };
 
-    selectionEl().querySelectorAll(".lasso-handle").forEach((handle) => {
-      const [left, top] = positions[handle.dataset.dir];
-      handle.style.left = left + "px";
-      handle.style.top = top + "px";
-    });
+    selectionEl()
+      .querySelectorAll(".lasso-handle")
+      .forEach((handle) => {
+        const [left, top] = positions[handle.dataset.dir];
+        handle.style.left = left + "px";
+        handle.style.top = top + "px";
+      });
   }
 
   function positionToolbar(rect) {
@@ -1188,12 +1215,16 @@
       if (!sel.userResized && sel.pickedItems.length) {
         recomputePickRect(window.scrollX, sel.captureScrollY);
       }
-      if (sel.mode === "pick" && pickCropWouldClip(window.scrollX, sel.captureScrollY)) {
+      if (
+        sel.mode === "pick" &&
+        pickCropWouldClip(window.scrollX, sel.captureScrollY)
+      ) {
         return null;
       }
       return rectForCapture(sel);
     },
     hideCaptureChrome,
+    prepareCaptureChrome,
     cleanupSelection,
     onCaptureCancelled,
     onCaptureFailed,
