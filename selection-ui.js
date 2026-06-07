@@ -1027,6 +1027,11 @@
       handle.style.display = "block";
     });
 
+    // Text extraction isn't offered for full-page: the stitched image can blow
+    // past message-size limits, and DOM text would only cover the viewport.
+    const textBtn = sel.dom.toolbar?.querySelector(".lasso-btn-text");
+    if (textBtn) textBtn.style.display = sel.mode === "fullpage" ? "none" : "";
+
     if (sel.mode !== "pick") unbindHoverListeners();
     renderSelection(sel.rect, "locked");
   }
@@ -1209,7 +1214,7 @@
   // canvas, video).
   async function extractText() {
     await waitForPickAddIdle();
-    if (!sel.rect) return;
+    if (!sel.rect || sel.mode === "fullpage") return;
 
     const rect = { ...sel.rect };
     const fullpage = sel.mode === "fullpage";

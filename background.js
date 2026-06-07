@@ -19,6 +19,9 @@ const PREVIEW_DEBOUNCE_MS = 400;
 // Maps each OCR job id to the tab that requested it, so overlapping jobs from
 // different tabs route their progress/results back to the right place.
 const ocrJobs = new Map();
+// The latest job id per tab; replies from superseded jobs are dropped so a
+// stale result can't land in a newer text session.
+const latestOcrByTab = new Map();
 let ocrJobSeq = 0;
 let creatingOffscreen = null;
 
@@ -100,6 +103,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       if (sender.tab?.id) {
         const jobId = ++ocrJobSeq;
         ocrJobs.set(jobId, sender.tab.id);
+        latestOcrByTab.set(sender.tab.id, jobId);
         forwardOcr(jobId, msg.dataURL).catch((err) => {
           console.error("Lasso OCR failed:", err);
           relayOcr(jobId, {
@@ -140,6 +144,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 function relayOcr(jobId, message) {
   const tabId = ocrJobs.get(jobId);
   if (tabId == null) return;
+  // Drop replies from a job the tab has already moved past (newer OCR started).
+  if (latestOcrByTab.get(tabId) !== jobId) return;
   sendToTab(tabId, message).catch(() => {
     // tab may be gone
   });

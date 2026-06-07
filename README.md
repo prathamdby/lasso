@@ -71,7 +71,7 @@ It works two ways automatically:
 - **Real page text** — if the selection covers HTML text, Lasso reads it straight from the DOM. Instant and exact.
 - **OCR** — for text baked into pixels (images, `<canvas>`, video frames), Lasso recognizes it with a bundled, on-device [Tesseract](https://github.com/naptha/tesseract.js) engine (English). The image never leaves your machine.
 
-The OCR engine (~6 MB, vendored under `vendor/tesseract/`) loads only the first time you use it, and runs in an offscreen document so it never blocks the page.
+The OCR engine (~6 MB, vendored under `vendor/tesseract/`) loads only the first time you use it, and runs in an offscreen document so it never blocks the page. Text extraction is available for the Visible, Pick, and Freestyle selections (not Full page).
 
 ## Keyboard shortcuts
 
