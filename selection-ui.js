@@ -708,10 +708,11 @@
 
   function hideCaptureChrome() {
     clearPageSelection();
-    overlay()?.style.setProperty("visibility", "hidden", "important");
-    selectionEl()?.style.setProperty("visibility", "hidden", "important");
-    hintEl()?.style.setProperty("visibility", "hidden", "important");
-    previewScreenEl()?.style.setProperty("visibility", "hidden", "important");
+    overlay()?.style.setProperty("display", "none", "important");
+    selectionEl()?.style.setProperty("display", "none", "important");
+    hintEl()?.style.setProperty("display", "none", "important");
+    previewScreenEl()?.style.setProperty("display", "none", "important");
+    void document.documentElement.offsetHeight;
   }
 
   function onDrawMouseUp(e) {
@@ -857,6 +858,7 @@
 
   function renderSelection(rect, phase) {
     if (!sel.active || !selectionEl()) return;
+    if (sel.captureInProgress) return;
     if (rect.width <= 0 || rect.height <= 0) {
       selectionEl().style.display = "none";
       return;
