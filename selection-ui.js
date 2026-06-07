@@ -715,6 +715,19 @@
     void document.documentElement.offsetHeight;
   }
 
+  function waitForPaint() {
+    return new Promise((resolve) => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(resolve);
+      });
+    });
+  }
+
+  async function prepareCaptureChrome() {
+    hideCaptureChrome();
+    await waitForPaint();
+  }
+
   function onDrawMouseUp(e) {
     if (!sel.active || !canFreestyleDraw() || !sel.draw.pending) return;
     if (sel.phase !== "hover") return;
@@ -1115,6 +1128,7 @@
       return rectForCapture(sel);
     },
     hideCaptureChrome,
+    prepareCaptureChrome,
     cleanupSelection,
     onCaptureCancelled,
     onCaptureFailed,

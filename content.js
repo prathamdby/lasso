@@ -57,9 +57,10 @@
         break;
 
       case LassoMsg.PREPARE_CAPTURE:
-        window.LassoSelection.hideCaptureChrome();
-        sendResponse({ ok: true });
-        break;
+        window.LassoSelection.prepareCaptureChrome()
+          .then(() => sendResponse({ ok: true }))
+          .catch(() => sendResponse({ ok: false }));
+        return true;
 
       case LassoMsg.GET_CAPTURE_PARAMS:
         window.LassoSelection.getCaptureParams()
