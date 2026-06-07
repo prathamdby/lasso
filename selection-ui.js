@@ -2,7 +2,6 @@
   if (window.__lassoSelectionLoaded) return;
   window.__lassoSelectionLoaded = true;
 
-  const PICK_SCROLL_WAIT_MS = 200;
   const MIN_SELECTION_SIZE = 12;
   const DRAW_THRESHOLD = 4;
   const HANDLE_DIRS = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
@@ -18,6 +17,7 @@
   };
   const INLINE_TAGS = /^(SPAN|A|TIME|LABEL|B|I|EM|STRONG|CODE|SMALL)$/i;
   const FORMAT_CHIPS = ["png", "jpeg", "webp"];
+  const FORMAT_CHIP_SET = new Set(FORMAT_CHIPS);
   const DEFAULT_FORMAT = "png";
 
   // Synchronously-readable copy of the stored format so the toolbar paints the
@@ -27,11 +27,11 @@
   let cachedFormat = DEFAULT_FORMAT;
   try {
     chrome.storage.local.get("lassoFormat", ({ lassoFormat }) => {
-      if (FORMAT_CHIPS.includes(lassoFormat)) cachedFormat = lassoFormat;
+      if (FORMAT_CHIP_SET.has(lassoFormat)) cachedFormat = lassoFormat;
     });
     chrome.storage.onChanged.addListener((changes, area) => {
       const next = changes.lassoFormat?.newValue;
-      if (area === "local" && FORMAT_CHIPS.includes(next)) cachedFormat = next;
+      if (area === "local" && FORMAT_CHIP_SET.has(next)) cachedFormat = next;
     });
   } catch {
     // storage unavailable; the default chip stays selected
@@ -49,6 +49,7 @@
     userResized: false,
     hoverTarget: null,
     pickedItems: [],
+    pickedEls: new Set(),
     pickAnchorDocRect: null,
     pickManualDocRect: null,
     pickPreviewEl: null,
@@ -61,6 +62,8 @@
       selection: null,
       dimensions: null,
       toolbar: null,
+      handles: [],
+      formatChips: [],
       hint: null,
       previewScreen: null,
     },
@@ -167,6 +170,27 @@
     window.getSelection()?.removeAllRanges();
   }
 
+  function setPickedItems(items) {
+    sel.pickedItems = items;
+    sel.pickedEls = new Set();
+    for (const item of items) {
+      if (item.el) sel.pickedEls.add(item.el);
+    }
+  }
+
+  function clearPickedItems() {
+    setPickedItems([]);
+  }
+
+  function hasPickedElement(el) {
+    return sel.pickedEls.has(el);
+  }
+
+  function addPickedElement(el) {
+    sel.pickedItems.push(snapshotPickItem(el));
+    sel.pickedEls.add(el);
+  }
+
   function onSelectionGuardEvent(e) {
     if (!sel.active) return;
     if (isLassoChrome(e.target)) return;
@@ -205,7 +229,7 @@
     sel.rect = null;
     sel.userResized = false;
     sel.hoverTarget = null;
-    sel.pickedItems = [];
+    clearPickedItems();
     sel.pickAnchorDocRect = null;
     sel.pickManualDocRect = null;
     sel.pickPreviewEl = null;
@@ -347,7 +371,7 @@
     dimensionsNode.id = "lasso-dimensions";
     selectionNode.appendChild(dimensionsNode);
 
-    HANDLE_DIRS.forEach((dir) => {
+    const handles = HANDLE_DIRS.map((dir) => {
       const handle = document.createElement("div");
       handle.className = "lasso-handle";
       handle.dataset.dir = dir;
@@ -355,6 +379,7 @@
       handle.style.display = "none";
       handle.addEventListener("mousedown", (e) => startResize(e, dir));
       selectionNode.appendChild(handle);
+      return handle;
     });
 
     const toolbarNode = document.createElement("div");
@@ -381,12 +406,17 @@
     `;
     toolbarNode.addEventListener("click", onToolbarClick);
     selectionNode.appendChild(toolbarNode);
+    const formatChips = Array.from(
+      toolbarNode.querySelectorAll(".lasso-format-chip"),
+    );
 
     sel.dom = {
       overlay: overlayNode,
       selection: selectionNode,
       dimensions: dimensionsNode,
       toolbar: toolbarNode,
+      handles,
+      formatChips,
       hint: hintNode,
       previewScreen: sel.dom.previewScreen,
     };
@@ -402,7 +432,7 @@
   }
 
   function highlightFormat(format) {
-    sel.dom.toolbar?.querySelectorAll(".lasso-format-chip").forEach((chip) => {
+    sel.dom.formatChips.forEach((chip) => {
       const active = chip.dataset.format === format;
       chip.classList.toggle("is-active", active);
       chip.setAttribute("aria-pressed", active ? "true" : "false");
@@ -412,7 +442,7 @@
   function syncToolbarFormat() {
     try {
       chrome.storage.local.get("lassoFormat", ({ lassoFormat }) => {
-        const format = FORMAT_CHIPS.includes(lassoFormat)
+        const format = FORMAT_CHIP_SET.has(lassoFormat)
           ? lassoFormat
           : DEFAULT_FORMAT;
         cachedFormat = format;
@@ -428,7 +458,7 @@
   }
 
   function selectFormat(format) {
-    if (!FORMAT_CHIPS.includes(format)) return;
+    if (!FORMAT_CHIP_SET.has(format)) return;
     sel.formatPicked = true;
     cachedFormat = format;
     highlightFormat(format);
@@ -496,32 +526,29 @@
   }
 
   function resolvePickTarget(x, y) {
-    const stack = elementsUnderPoint(x, y).filter((el) => isPageEl(el));
-    if (!stack.length) return null;
+    const stack = elementsUnderPoint(x, y);
+    let candidate = null;
+    let fallback = null;
 
     for (const el of stack) {
+      if (!isPageEl(el)) continue;
+
       if (el.matches("img, video, picture, svg, canvas, [role='img']")) {
         return el;
       }
-    }
 
-    let candidate = null;
-    for (const el of stack) {
       if (el === document.body || el === document.documentElement) continue;
+      if (!fallback) fallback = el;
+      if (candidate) continue;
 
       const rect = el.getBoundingClientRect();
       if (rect.width < 2 || rect.height < 2) continue;
       if (isLayoutShell(rect)) continue;
 
       candidate = el;
-      break;
     }
 
-    if (!candidate) {
-      candidate = stack.find(
-        (el) => el !== document.body && el !== document.documentElement,
-      );
-    }
+    if (!candidate) candidate = fallback;
     if (!candidate) return null;
 
     for (let depth = 0; depth < 2; depth++) {
@@ -589,13 +616,20 @@
   }
 
   function unionRects(rects) {
-    const valid = rects.filter((r) => r.width > 0 && r.height > 0);
-    if (!valid.length) return null;
+    let left = Infinity;
+    let top = Infinity;
+    let right = -Infinity;
+    let bottom = -Infinity;
 
-    const left = Math.min(...valid.map((r) => r.x));
-    const top = Math.min(...valid.map((r) => r.y));
-    const right = Math.max(...valid.map((r) => r.x + r.width));
-    const bottom = Math.max(...valid.map((r) => r.y + r.height));
+    for (const rect of rects) {
+      if (!rect || rect.width <= 0 || rect.height <= 0) continue;
+      left = Math.min(left, rect.x);
+      top = Math.min(top, rect.y);
+      right = Math.max(right, rect.x + rect.width);
+      bottom = Math.max(bottom, rect.y + rect.height);
+    }
+
+    if (left === Infinity) return null;
     return { x: left, y: top, width: right - left, height: bottom - top };
   }
 
@@ -682,8 +716,11 @@
       domRect.right > vw;
 
     if (outOfView) {
-      el.scrollIntoView({ block: "nearest", inline: "nearest" });
-      await new Promise((r) => setTimeout(r, PICK_SCROLL_WAIT_MS));
+      el.scrollIntoView({
+        block: "nearest",
+        inline: "nearest",
+        behavior: "instant",
+      });
     }
   }
 
@@ -706,15 +743,14 @@
     if (union.y + union.height > vh) nextY += union.y + union.height - vh;
     if (union.x + union.width > vw) nextX += union.x + union.width - vw;
 
-    window.scrollTo({ left: nextX, top: nextY });
-    await new Promise((r) => setTimeout(r, PICK_SCROLL_WAIT_MS));
+    window.scrollTo({ left: nextX, top: nextY, behavior: "instant" });
   }
 
   async function addPickElement(el) {
-    if (sel.pickedItems.some((item) => item.el === el)) return;
+    if (hasPickedElement(el)) return;
     if (sel.pickAddInFlight) {
       await waitForPickAddIdle();
-      if (sel.pickedItems.some((item) => item.el === el)) return;
+      if (hasPickedElement(el)) return;
     }
 
     const work = (async () => {
@@ -735,7 +771,7 @@
       }
       if (!sel.active) return;
 
-      sel.pickedItems.push(snapshotPickItem(el));
+      addPickedElement(el);
       sel.userResized = false;
       sel.pickPreviewEl = null;
       recomputePickRect();
@@ -916,7 +952,7 @@
   function lockSelection(rect, element = null) {
     sel.phase = sel.mode === "pick" ? "pick-add" : "locked";
     sel.userResized = false;
-    sel.pickedItems = element ? [snapshotPickItem(element)] : [];
+    setPickedItems(element ? [snapshotPickItem(element)] : []);
     sel.pickAnchorDocRect = element
       ? null
       : rectToDocument(normalizeRect(rect));
@@ -929,11 +965,9 @@
     sel.dom.hint = null;
 
     selectionEl().className = "lasso-locked";
-    selectionEl()
-      .querySelectorAll(".lasso-handle")
-      .forEach((h) => {
-        h.style.display = "block";
-      });
+    sel.dom.handles.forEach((handle) => {
+      handle.style.display = "block";
+    });
 
     if (sel.mode !== "pick") unbindHoverListeners();
     renderSelection(sel.rect, "locked");
@@ -991,13 +1025,11 @@
       w: [0, height / 2],
     };
 
-    selectionEl()
-      .querySelectorAll(".lasso-handle")
-      .forEach((handle) => {
-        const [left, top] = positions[handle.dataset.dir];
-        handle.style.left = left + "px";
-        handle.style.top = top + "px";
-      });
+    sel.dom.handles.forEach((handle) => {
+      const [left, top] = positions[handle.dataset.dir];
+      handle.style.left = left + "px";
+      handle.style.top = top + "px";
+    });
   }
 
   function positionToolbar(rect) {
@@ -1021,7 +1053,7 @@
     e.preventDefault();
     e.stopPropagation();
     selectionEl().classList.add("lasso-resizing");
-    sel.pickedItems = [];
+    clearPickedItems();
     sel.pickAnchorDocRect = null;
     sel.pickManualDocRect = null;
     sel.userResized = true;
@@ -1153,7 +1185,7 @@
     sel.userResized = false;
     sel.formatPicked = false;
     sel.hoverTarget = null;
-    sel.pickedItems = [];
+    clearPickedItems();
     sel.pickAnchorDocRect = null;
     sel.pickManualDocRect = null;
     sel.pickPreviewEl = null;
@@ -1173,6 +1205,8 @@
       selection: null,
       dimensions: null,
       toolbar: null,
+      handles: [],
+      formatChips: [],
       hint: null,
       previewScreen: null,
     };

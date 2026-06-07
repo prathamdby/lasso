@@ -2,6 +2,59 @@
   if (window.__lassoLoaded) return;
   window.__lassoLoaded = true;
 
+  const SCROLL_SETTLE_FRAMES = 4;
+  const SCROLL_EPSILON = 1;
+
+  function nextAnimationFrame() {
+    return new Promise((resolve) => requestAnimationFrame(resolve));
+  }
+
+  function maxScrollX() {
+    return Math.max(
+      0,
+      document.documentElement.scrollWidth - window.innerWidth,
+      document.body.scrollWidth - window.innerWidth,
+    );
+  }
+
+  function maxScrollY() {
+    return Math.max(
+      0,
+      document.documentElement.scrollHeight - window.innerHeight,
+      document.body.scrollHeight - window.innerHeight,
+    );
+  }
+
+  function clamp(value, min, max) {
+    return Math.max(min, Math.min(value, max));
+  }
+
+  function isNearScrollTarget(x, y) {
+    return (
+      Math.abs(window.scrollX - x) <= SCROLL_EPSILON &&
+      Math.abs(window.scrollY - y) <= SCROLL_EPSILON
+    );
+  }
+
+  async function scrollToPosition({ x = window.scrollX, y = window.scrollY }) {
+    const targetX = clamp(x, 0, maxScrollX());
+    const targetY = clamp(y, 0, maxScrollY());
+    window.scrollTo({ left: targetX, top: targetY, behavior: "instant" });
+
+    for (let frame = 0; frame < SCROLL_SETTLE_FRAMES; frame += 1) {
+      await nextAnimationFrame();
+      if (isNearScrollTarget(targetX, targetY)) {
+        return { ok: true, scrollX: window.scrollX, scrollY: window.scrollY };
+      }
+    }
+
+    return {
+      ok: isNearScrollTarget(targetX, targetY),
+      scrollX: window.scrollX,
+      scrollY: window.scrollY,
+    };
+  }
+
   window.LassoCapture.init({
     isCaptureActive: () => window.LassoSelection.isCaptureActive(),
     onCaptureComplete: (options = {}) => {
@@ -35,9 +88,10 @@
         break;
 
       case LassoMsg.SCROLL_TO:
-        window.scrollTo(0, msg.y);
-        sendResponse({ ok: true });
-        break;
+        scrollToPosition(msg)
+          .then(sendResponse)
+          .catch(() => sendResponse({ ok: false }));
+        return true;
 
       case LassoMsg.START_SELECTION:
         window.LassoSelection.startCaptureUI({
