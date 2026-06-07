@@ -5,9 +5,43 @@
   let isCaptureActive = () => false;
   let onCaptureComplete = () => {};
 
+  const EXPORT_DEFAULTS = { format: "png", quality: 0.92 };
+  const FORMAT_MIME = {
+    png: "image/png",
+    jpeg: "image/jpeg",
+    webp: "image/webp",
+  };
+  const FORMAT_EXT = { png: "png", jpeg: "jpg", webp: "webp" };
+
   function init(deps) {
     isCaptureActive = deps.isCaptureActive;
     onCaptureComplete = deps.onCaptureComplete;
+  }
+
+  async function getExportSettings() {
+    try {
+      const { lassoFormat } = await chrome.storage.local.get("lassoFormat");
+      const format = FORMAT_MIME[lassoFormat]
+        ? lassoFormat
+        : EXPORT_DEFAULTS.format;
+      return { format, quality: EXPORT_DEFAULTS.quality };
+    } catch {
+      return { ...EXPORT_DEFAULTS };
+    }
+  }
+
+  // The async clipboard reliably accepts only PNG, so copies stay lossless
+  // PNG; the chosen format and quality apply to downloads.
+  function outputFor(action, settings) {
+    if (action === "copy") {
+      return { format: "png", mime: "image/png", quality: undefined };
+    }
+    const format = settings.format;
+    return {
+      format,
+      mime: FORMAT_MIME[format],
+      quality: format === "png" ? undefined : settings.quality,
+    };
   }
 
   function loadImage(dataURL) {
@@ -19,12 +53,21 @@
     });
   }
 
-  async function cropFromCanvas(source, rect, dpr) {
+  function fillJpegBackdrop(ctx, width, height, out) {
+    // JPEG has no alpha channel, so transparent pixels render black. Paint a
+    // white backdrop first so they come out white instead.
+    if (out.mime !== "image/jpeg") return;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, width, height);
+  }
+
+  async function cropFromCanvas(source, rect, dpr, out) {
     const canvas = new OffscreenCanvas(
       Math.round(rect.width * dpr),
       Math.round(rect.height * dpr),
     );
     const ctx = canvas.getContext("2d");
+    fillJpegBackdrop(ctx, canvas.width, canvas.height, out);
     ctx.drawImage(
       source,
       rect.x * dpr,
@@ -36,15 +79,15 @@
       rect.width * dpr,
       rect.height * dpr,
     );
-    return canvas.convertToBlob({ type: "image/png" });
+    return canvas.convertToBlob({ type: out.mime, quality: out.quality });
   }
 
-  async function cropDataUrl(dataURL, rect, dpr) {
+  async function cropDataUrl(dataURL, rect, dpr, out) {
     const img = await loadImage(dataURL);
-    return cropFromCanvas(img, rect, dpr);
+    return cropFromCanvas(img, rect, dpr, out);
   }
 
-  async function exportBlob(blob, action) {
+  async function exportBlob(blob, action, out) {
     if (action === "copy") {
       await navigator.clipboard.write([
         new ClipboardItem({ "image/png": blob }),
@@ -57,7 +100,7 @@
       chrome.runtime.sendMessage({
         type: LassoMsg.DOWNLOAD,
         url,
-        filename: "screenshot.png",
+        filename: `screenshot.${FORMAT_EXT[out.format]}`,
         revoke: true,
       });
     }
@@ -68,8 +111,9 @@
     onCaptureComplete({ keepUi: true });
 
     try {
-      const blob = await cropDataUrl(dataURL, rect, devicePixelRatio);
-      await exportBlob(blob, action);
+      const out = outputFor(action, await getExportSettings());
+      const blob = await cropDataUrl(dataURL, rect, devicePixelRatio, out);
+      await exportBlob(blob, action, out);
       onCaptureComplete({ finalize: true });
     } catch (err) {
       onCaptureComplete({
@@ -118,6 +162,7 @@
     onCaptureComplete({ keepUi: true });
 
     try {
+      const out = outputFor(action, await getExportSettings());
       const stitchHeight = stitchHeightFromCaptures(
         captures,
         totalHeight,
@@ -131,6 +176,7 @@
       canvas.width = totalWidth * dpr;
       canvas.height = stitchHeight * dpr;
       const ctx = canvas.getContext("2d");
+      fillJpegBackdrop(ctx, canvas.width, canvas.height, out);
 
       for (const { dataURL, y } of captures) {
         const img = await loadImage(dataURL);
@@ -157,14 +203,15 @@
           canvas,
           cropRectForStitch(exportRect, stitchHeight),
           dpr,
+          out,
         );
       } else {
         blob = await new Promise((resolve) =>
-          canvas.toBlob(resolve, "image/png"),
+          canvas.toBlob(resolve, out.mime, out.quality),
         );
       }
 
-      await exportBlob(blob, action);
+      await exportBlob(blob, action, out);
       onCaptureComplete({ finalize: true, truncated: !!truncated });
     } catch (err) {
       onCaptureComplete({

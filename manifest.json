@@ -3,7 +3,13 @@
   "name": "Lasso",
   "version": "1.0.0",
   "description": "Screenshot visible area, full page, or pick element/region",
-  "permissions": ["activeTab", "scripting", "downloads", "clipboardWrite"],
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "downloads",
+    "clipboardWrite",
+    "storage"
+  ],
   "host_permissions": ["<all_urls>"],
   "web_accessible_resources": [
     {
