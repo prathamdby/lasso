@@ -19,6 +19,8 @@
   const FORMAT_CHIPS = ["png", "jpeg", "webp"];
   const FORMAT_CHIP_SET = new Set(FORMAT_CHIPS);
   const DEFAULT_FORMAT = "png";
+  const SETTLE_FRAMES = 10;
+  const SETTLE_EPSILON = 1;
 
   // Synchronously-readable copy of the stored format so the toolbar paints the
   // correct chip on its first frame, rather than flashing the PNG default while
@@ -721,7 +723,7 @@
         inline: "nearest",
         behavior: "instant",
       });
-      await waitForPaint();
+      await waitForViewportSettle(el);
     }
   }
 
@@ -745,7 +747,7 @@
     if (union.x + union.width > vw) nextX += union.x + union.width - vw;
 
     window.scrollTo({ left: nextX, top: nextY, behavior: "instant" });
-    await waitForPaint();
+    await waitForViewportSettle(extraEl);
   }
 
   async function addPickElement(el) {
@@ -829,12 +831,52 @@
     void document.documentElement.offsetHeight;
   }
 
-  function waitForPaint() {
+  function waitForFrame() {
     return new Promise((resolve) => {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(resolve);
-      });
+      requestAnimationFrame(resolve);
     });
+  }
+
+  async function waitForPaint() {
+    await waitForFrame();
+    await waitForFrame();
+  }
+
+  function viewportState(el = null) {
+    const rect = el?.getBoundingClientRect();
+    return {
+      scrollX: window.scrollX,
+      scrollY: window.scrollY,
+      x: rect ? rect.x : 0,
+      y: rect ? rect.y : 0,
+      width: rect ? rect.width : 0,
+      height: rect ? rect.height : 0,
+    };
+  }
+
+  function nearValue(a, b) {
+    return Math.abs(a - b) <= SETTLE_EPSILON;
+  }
+
+  function sameViewportState(a, b) {
+    return (
+      nearValue(a.scrollX, b.scrollX) &&
+      nearValue(a.scrollY, b.scrollY) &&
+      nearValue(a.x, b.x) &&
+      nearValue(a.y, b.y) &&
+      nearValue(a.width, b.width) &&
+      nearValue(a.height, b.height)
+    );
+  }
+
+  async function waitForViewportSettle(el = null) {
+    let last = null;
+    for (let frame = 0; frame < SETTLE_FRAMES; frame += 1) {
+      await waitForFrame();
+      const current = viewportState(el);
+      if (last && sameViewportState(current, last)) return;
+      last = current;
+    }
   }
 
   async function prepareCaptureChrome() {

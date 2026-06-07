@@ -2,7 +2,7 @@
   if (window.__lassoLoaded) return;
   window.__lassoLoaded = true;
 
-  const SCROLL_SETTLE_FRAMES = 4;
+  const SCROLL_SETTLE_FRAMES = 10;
   const SCROLL_EPSILON = 1;
 
   function nextAnimationFrame() {
@@ -40,18 +40,10 @@
     return { scrollX: window.scrollX, scrollY: window.scrollY };
   }
 
-  function isSameScrollPosition(a, b) {
-    return (
-      Math.abs(a.scrollX - b.scrollX) <= SCROLL_EPSILON &&
-      Math.abs(a.scrollY - b.scrollY) <= SCROLL_EPSILON
-    );
-  }
-
   async function scrollToPosition({ x = window.scrollX, y = window.scrollY }) {
     const targetX = clamp(x, 0, maxScrollX());
     const targetY = clamp(y, 0, maxScrollY());
     window.scrollTo({ left: targetX, top: targetY, behavior: "instant" });
-    let last = currentScroll();
 
     for (let frame = 0; frame < SCROLL_SETTLE_FRAMES; frame += 1) {
       await nextAnimationFrame();
@@ -59,10 +51,6 @@
       if (isNearScrollTarget(targetX, targetY)) {
         return { ok: true, ...current };
       }
-      if (isSameScrollPosition(current, last)) {
-        return { ok: true, ...current };
-      }
-      last = current;
     }
 
     const current = currentScroll();
