@@ -20,6 +20,7 @@
   const FORMAT_CHIP_SET = new Set(FORMAT_CHIPS);
   const DEFAULT_FORMAT = "png";
   const SETTLE_FRAMES = 10;
+  const SETTLE_STABLE_FRAMES = 3;
   const SETTLE_EPSILON = 1;
 
   // Synchronously-readable copy of the stored format so the toolbar paints the
@@ -871,10 +872,16 @@
 
   async function waitForViewportSettle(el = null) {
     let last = null;
+    let stableFrames = 0;
     for (let frame = 0; frame < SETTLE_FRAMES; frame += 1) {
       await waitForFrame();
       const current = viewportState(el);
-      if (last && sameViewportState(current, last)) return;
+      if (last && sameViewportState(current, last)) {
+        stableFrames += 1;
+      } else {
+        stableFrames = 0;
+      }
+      if (stableFrames >= SETTLE_STABLE_FRAMES) return;
       last = current;
     }
   }

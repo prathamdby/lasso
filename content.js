@@ -44,6 +44,7 @@
   async function scrollToPosition({ x = window.scrollX, y = window.scrollY }) {
     const targetX = clamp(x, 0, maxScrollX());
     const targetY = clamp(y, 0, maxScrollY());
+    const target = { scrollX: targetX, scrollY: targetY };
     window.scrollTo({ left: targetX, top: targetY, behavior: "instant" });
 
     let previous = currentScroll();
@@ -56,7 +57,10 @@
       } else {
         stableFrames = 0;
       }
-      if (stableFrames >= SCROLL_STABLE_FRAMES) {
+      if (
+        stableFrames >= SCROLL_STABLE_FRAMES &&
+        isNearScrollPosition(current, target)
+      ) {
         return { ok: true, ...current };
       }
       previous = current;

@@ -136,7 +136,9 @@ async function prepareTabForCapture(tabId) {
 
 async function scrollTabTo(tabId, y) {
   const response = await sendToTab(tabId, { type: LassoMsg.SCROLL_TO, y });
-  if (!response?.ok) throw new Error("Page did not settle after scrolling");
+  if (!response?.ok && !Number.isFinite(response?.scrollY)) {
+    throw new Error("Page did not settle after scrolling");
+  }
   return response;
 }
 
