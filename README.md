@@ -120,12 +120,6 @@ Project layout:
 | `popup.html` / `popup.js` / `popup.css` | Toolbar popup.                                                |
 | `icons/`                                | Extension icons (`icon.svg` source, PNG sizes for the store). |
 
-Regenerate PNG icons from the SVG source (requires `librsvg`):
-
-```bash
-./scripts/build-icons.sh
-```
-
 After code changes, reload the extension on `chrome://extensions`.
 
 ## License
