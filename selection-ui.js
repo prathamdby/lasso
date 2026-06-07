@@ -20,6 +20,23 @@
   const FORMAT_CHIPS = ["png", "jpeg", "webp"];
   const DEFAULT_FORMAT = "png";
 
+  // Synchronously-readable copy of the stored format so the toolbar paints the
+  // correct chip on its first frame, rather than flashing the PNG default while
+  // the async storage read resolves. Kept fresh by the change listener below
+  // and by selectFormat.
+  let cachedFormat = DEFAULT_FORMAT;
+  try {
+    chrome.storage.local.get("lassoFormat", ({ lassoFormat }) => {
+      if (FORMAT_CHIPS.includes(lassoFormat)) cachedFormat = lassoFormat;
+    });
+    chrome.storage.onChanged.addListener((changes, area) => {
+      const next = changes.lassoFormat?.newValue;
+      if (area === "local" && FORMAT_CHIPS.includes(next)) cachedFormat = next;
+    });
+  } catch {
+    // storage unavailable; the default chip stays selected
+  }
+
   const sel = {
     active: false,
     phase: "idle",
@@ -380,6 +397,7 @@
     document.addEventListener("keydown", onSelectionKeyDown, true);
     bindFreezeListeners();
     bindSelectionGuardListeners();
+    highlightFormat(cachedFormat);
     syncToolbarFormat();
   }
 
@@ -394,13 +412,15 @@
   function syncToolbarFormat() {
     try {
       chrome.storage.local.get("lassoFormat", ({ lassoFormat }) => {
+        const format = FORMAT_CHIPS.includes(lassoFormat)
+          ? lassoFormat
+          : DEFAULT_FORMAT;
+        cachedFormat = format;
         // This async read can resolve after a fast chip click or after the
         // toolbar was torn down/rebuilt. In both cases the user's choice (or
         // the new session) wins, so don't overwrite it with the stored value.
         if (sel.formatPicked || !sel.dom.toolbar) return;
-        highlightFormat(
-          FORMAT_CHIPS.includes(lassoFormat) ? lassoFormat : DEFAULT_FORMAT,
-        );
+        highlightFormat(format);
       });
     } catch {
       highlightFormat(DEFAULT_FORMAT);
@@ -410,6 +430,7 @@
   function selectFormat(format) {
     if (!FORMAT_CHIPS.includes(format)) return;
     sel.formatPicked = true;
+    cachedFormat = format;
     highlightFormat(format);
     // The capture pipeline reads this at export time, so the choice applies
     // to the next download (and persists for future captures).
