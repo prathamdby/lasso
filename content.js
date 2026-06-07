@@ -91,6 +91,11 @@
   });
 
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+    // runtime.sendMessage also reaches content scripts, so ignore messages
+    // addressed to another extension context (background↔offscreen OCR
+    // traffic). Tab-targeted relays carry no `target`.
+    if (msg.target) return false;
+
     switch (msg.type) {
       case LassoMsg.GET_PAGE_DIMENSIONS:
         sendResponse({

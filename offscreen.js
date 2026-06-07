@@ -47,6 +47,7 @@ function getWorker() {
       if (m.status === "recognizing text" && activeJobId != null) {
         chrome.runtime.sendMessage({
           type: LassoMsg.OCR_PROGRESS,
+          target: "background",
           jobId: activeJobId,
           progress: m.progress,
         });
@@ -100,6 +101,7 @@ chrome.runtime.onMessage.addListener((msg) => {
       const { text, words } = await runOcr(dataURL);
       chrome.runtime.sendMessage({
         type: LassoMsg.OCR_RESULT,
+        target: "background",
         jobId,
         text,
         words,
@@ -107,6 +109,7 @@ chrome.runtime.onMessage.addListener((msg) => {
     } catch (err) {
       chrome.runtime.sendMessage({
         type: LassoMsg.OCR_ERROR,
+        target: "background",
         jobId,
         message: err?.message || "Text recognition failed",
       });

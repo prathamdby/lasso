@@ -1489,11 +1489,34 @@
 
   function closeTextUi() {
     if (!textUi) return;
+    clearOcrTimeout();
     document.removeEventListener("keydown", onTextKeyDown, true);
     window.getSelection()?.removeAllRanges();
     textUi.overlay?.remove();
     textUi.bar.remove();
     textUi = null;
+  }
+
+  const OCR_TIMEOUT_MS = 60000;
+
+  function clearOcrTimeout() {
+    if (textUi?.ocrTimer) {
+      clearTimeout(textUi.ocrTimer);
+      textUi.ocrTimer = null;
+    }
+  }
+
+  // Guard against a reply that never arrives (dispatch error, offscreen death),
+  // so the bar can't sit on "Recognizing…" forever.
+  function armOcrTimeout() {
+    clearOcrTimeout();
+    if (!textUi) return;
+    textUi.ocrTimer = setTimeout(() => {
+      if (!textUi) return;
+      textUi.status.textContent = "Text recognition timed out";
+      textUi.copyBtn.disabled = true;
+      textUi.ocrTimer = null;
+    }, OCR_TIMEOUT_MS);
   }
 
   function onOcrStarted(options = {}) {
@@ -1517,15 +1540,19 @@
     textUi.status.textContent = "Recognizing text…";
     textUi.copyBtn.disabled = true;
     positionTextBar(target.rect, target.fullpage);
+    armOcrTimeout();
   }
 
   function onOcrProgress(progress) {
     if (!textUi) return;
+    // Progress means the worker is alive; push the timeout back.
+    armOcrTimeout();
     textUi.status.textContent = `Recognizing text… ${Math.round((progress || 0) * 100)}%`;
   }
 
   function onOcrResult(text, words) {
     if (!textUi) return;
+    clearOcrTimeout();
     const value = (text || "").trim();
     textUi.getText = () => value;
     textUi.copyBtn.disabled = !value;
@@ -1552,6 +1579,7 @@
     // The text bar was dismissed before the job finished; don't surface a
     // spurious failure notice for a result the user already walked away from.
     if (!textUi) return;
+    clearOcrTimeout();
     textUi.status.textContent = message || "Text recognition failed";
     textUi.copyBtn.disabled = true;
   }
