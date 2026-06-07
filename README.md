@@ -56,6 +56,12 @@ In preview mode you can hover to pick an element, **Shift+click** to add more el
 
 After a selection is locked, use the toolbar to **copy** (`Ctrl+C`) or **download** (`Ctrl+S`). Press `Esc` to cancel. Multi-element picks must fit in one viewport shot; if the combined box is too large, Lasso shows an error instead of cropping silently.
 
+## Export format
+
+Once a selection is locked, the capture toolbar shows **PNG** (lossless, default), **JPEG**, and **WebP** chips next to **Copy** / **Download**. Pick one right before you save — the choice is remembered for next time and works in every flow, including the hotkey and preview. JPEG and WebP are encoded at a high default quality.
+
+Copies to the clipboard are always PNG — the async clipboard reliably accepts only PNG — so the format choice affects downloaded files, not clipboard copies.
+
 ## Keyboard shortcuts
 
 | Shortcut | Action |
@@ -92,6 +98,7 @@ flowchart LR
 | `scripting` | Inject capture UI when needed. |
 | `downloads` | Save PNG files. |
 | `clipboardWrite` | Copy PNG to clipboard. |
+| `storage` | Remember your selected download format. |
 | `<all_urls>` | Run on any site you screenshot and handle the global hotkey without opening the popup first. |
 
 Lasso does not send page content to any external service.
