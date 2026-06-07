@@ -3,6 +3,7 @@
   window.__lassoLoaded = true;
 
   const SCROLL_SETTLE_FRAMES = 10;
+  const SCROLL_STABLE_FRAMES = 3;
   const SCROLL_EPSILON = 1;
 
   function nextAnimationFrame() {
@@ -29,10 +30,10 @@
     return Math.max(min, Math.min(value, max));
   }
 
-  function isNearScrollTarget(x, y) {
+  function isNearScrollPosition(a, b) {
     return (
-      Math.abs(window.scrollX - x) <= SCROLL_EPSILON &&
-      Math.abs(window.scrollY - y) <= SCROLL_EPSILON
+      Math.abs(a.scrollX - b.scrollX) <= SCROLL_EPSILON &&
+      Math.abs(a.scrollY - b.scrollY) <= SCROLL_EPSILON
     );
   }
 
@@ -45,18 +46,25 @@
     const targetY = clamp(y, 0, maxScrollY());
     window.scrollTo({ left: targetX, top: targetY, behavior: "instant" });
 
+    let previous = currentScroll();
+    let stableFrames = 0;
     for (let frame = 0; frame < SCROLL_SETTLE_FRAMES; frame += 1) {
       await nextAnimationFrame();
       const current = currentScroll();
-      if (isNearScrollTarget(targetX, targetY)) {
+      if (isNearScrollPosition(current, previous)) {
+        stableFrames += 1;
+      } else {
+        stableFrames = 0;
+      }
+      if (stableFrames >= SCROLL_STABLE_FRAMES) {
         return { ok: true, ...current };
       }
+      previous = current;
     }
 
-    const current = currentScroll();
     return {
-      ok: isNearScrollTarget(targetX, targetY),
-      ...current,
+      ok: false,
+      ...previous,
     };
   }
 
