@@ -721,6 +721,7 @@
         inline: "nearest",
         behavior: "instant",
       });
+      await waitForPaint();
     }
   }
 
@@ -744,6 +745,7 @@
     if (union.x + union.width > vw) nextX += union.x + union.width - vw;
 
     window.scrollTo({ left: nextX, top: nextY, behavior: "instant" });
+    await waitForPaint();
   }
 
   async function addPickElement(el) {

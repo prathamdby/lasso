@@ -36,22 +36,39 @@
     );
   }
 
+  function currentScroll() {
+    return { scrollX: window.scrollX, scrollY: window.scrollY };
+  }
+
+  function isSameScrollPosition(a, b) {
+    return (
+      Math.abs(a.scrollX - b.scrollX) <= SCROLL_EPSILON &&
+      Math.abs(a.scrollY - b.scrollY) <= SCROLL_EPSILON
+    );
+  }
+
   async function scrollToPosition({ x = window.scrollX, y = window.scrollY }) {
     const targetX = clamp(x, 0, maxScrollX());
     const targetY = clamp(y, 0, maxScrollY());
     window.scrollTo({ left: targetX, top: targetY, behavior: "instant" });
+    let last = currentScroll();
 
     for (let frame = 0; frame < SCROLL_SETTLE_FRAMES; frame += 1) {
       await nextAnimationFrame();
+      const current = currentScroll();
       if (isNearScrollTarget(targetX, targetY)) {
-        return { ok: true, scrollX: window.scrollX, scrollY: window.scrollY };
+        return { ok: true, ...current };
       }
+      if (isSameScrollPosition(current, last)) {
+        return { ok: true, ...current };
+      }
+      last = current;
     }
 
+    const current = currentScroll();
     return {
       ok: isNearScrollTarget(targetX, targetY),
-      scrollX: window.scrollX,
-      scrollY: window.scrollY,
+      ...current,
     };
   }
 

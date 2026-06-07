@@ -322,14 +322,15 @@ async function captureFullPage(
   while (y < totalHeight) {
     if (await bailIfCancelled(tab.id, tab, hideFixed, originalScrollY)) return;
 
-    await scrollTabTo(tab.id, y);
+    const scroll = await scrollTabTo(tab.id, y);
+    const captureY = Number.isFinite(scroll.scrollY) ? scroll.scrollY : y;
 
     if (await bailIfCancelled(tab.id, tab, hideFixed, originalScrollY)) return;
 
     const dataURL = await chrome.tabs.captureVisibleTab(tab.windowId, {
       format: "png",
     });
-    captures.push({ dataURL, y });
+    captures.push({ dataURL, y: captureY });
     y += viewportHeight;
 
     if (captures.length >= FULLPAGE_SLICE_LIMIT) {
