@@ -8,7 +8,7 @@
 
 </div>
 
-> **Capture without leaving the page.** Pick one or more elements, drag a region, grab the viewport, or stitch a full-page shot. Copy or download from the selection toolbar.
+> **Capture without leaving the page.** Pick one or more elements, drag a region, grab the viewport, or stitch a full-page shot. Set the download type in the popup, then copy or download from the selection toolbar.
 
 Lasso is a lightweight browser extension for screenshot workflows that need more control than a full-tab capture. It runs entirely in your browser. No accounts, no uploads, no backend.
 
@@ -58,7 +58,7 @@ After a selection is locked, use the toolbar to **copy** (`Ctrl+C`) or **downloa
 
 ## Export format
 
-Once a selection is locked, the capture toolbar shows **PNG** (lossless, default), **JPEG**, and **WebP** chips next to **Copy** / **Download**. Pick one right before you save — the choice is remembered for next time and works in every flow, including the hotkey and preview. JPEG and WebP are encoded at a high default quality.
+Use the popup dropdown to choose **PNG** (lossless, default), **JPEG**, or **WebP** before capture. The choice is remembered for next time and works in every flow, including the hotkey and preview. JPEG and WebP are encoded at a high default quality.
 
 Copies to the clipboard are always PNG — the async clipboard reliably accepts only PNG — so the format choice affects downloaded files, not clipboard copies.
 
@@ -96,7 +96,7 @@ flowchart LR
 | ---------------- | -------------------------------------------------------------------------------------------- |
 | `activeTab`      | Capture the tab you are working in.                                                          |
 | `scripting`      | Inject capture UI when needed.                                                               |
-| `downloads`      | Save PNG files.                                                                              |
+| `downloads`      | Save downloaded screenshots.                                                                 |
 | `clipboardWrite` | Copy PNG to clipboard.                                                                       |
 | `<all_urls>`     | Run on any site you screenshot and handle the global hotkey without opening the popup first. |
 

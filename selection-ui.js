@@ -16,29 +16,9 @@
     w: "w-resize",
   };
   const INLINE_TAGS = /^(SPAN|A|TIME|LABEL|B|I|EM|STRONG|CODE|SMALL)$/i;
-  const FORMAT_CHIPS = ["png", "jpeg", "webp"];
-  const FORMAT_CHIP_SET = new Set(FORMAT_CHIPS);
-  const DEFAULT_FORMAT = "png";
   const SETTLE_FRAMES = 10;
   const SETTLE_STABLE_FRAMES = 3;
   const SETTLE_EPSILON = 1;
-
-  // Synchronously-readable copy of the stored format so the toolbar paints the
-  // correct chip on its first frame, rather than flashing the PNG default while
-  // the async storage read resolves. Kept fresh by the change listener below
-  // and by selectFormat.
-  let cachedFormat = DEFAULT_FORMAT;
-  try {
-    chrome.storage.local.get("lassoFormat", ({ lassoFormat }) => {
-      if (FORMAT_CHIP_SET.has(lassoFormat)) cachedFormat = lassoFormat;
-    });
-    chrome.storage.onChanged.addListener((changes, area) => {
-      const next = changes.lassoFormat?.newValue;
-      if (area === "local" && FORMAT_CHIP_SET.has(next)) cachedFormat = next;
-    });
-  } catch {
-    // storage unavailable; the default chip stays selected
-  }
 
   const sel = {
     active: false,
@@ -58,7 +38,6 @@
     pickPreviewEl: null,
     pickAddInFlight: false,
     pickAddPromise: null,
-    formatPicked: false,
     draw: { pending: null, active: false, suppressClick: false },
     dom: {
       overlay: null,
@@ -66,7 +45,6 @@
       dimensions: null,
       toolbar: null,
       handles: [],
-      formatChips: [],
       hint: null,
       previewScreen: null,
     },
@@ -238,7 +216,6 @@
     sel.pickPreviewEl = null;
     sel.pickAddInFlight = false;
     sel.pickAddPromise = null;
-    sel.formatPicked = false;
     sel.draw = { pending: null, active: false, suppressClick: false };
 
     buildSelectionChrome();
@@ -392,12 +369,6 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
       </button>
       <span class="lasso-toolbar-divider" aria-hidden="true"></span>
-      <div class="lasso-format-group" role="group" aria-label="Download format">
-        <button type="button" class="lasso-format-chip" data-format="png" aria-pressed="true">PNG</button>
-        <button type="button" class="lasso-format-chip" data-format="jpeg" aria-pressed="false">JPEG</button>
-        <button type="button" class="lasso-format-chip" data-format="webp" aria-pressed="false">WebP</button>
-      </div>
-      <span class="lasso-toolbar-divider" aria-hidden="true"></span>
       <button type="button" class="lasso-btn-copy" data-action="copy" aria-label="Copy">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
         Copy
@@ -409,9 +380,6 @@
     `;
     toolbarNode.addEventListener("click", onToolbarClick);
     selectionNode.appendChild(toolbarNode);
-    const formatChips = Array.from(
-      toolbarNode.querySelectorAll(".lasso-format-chip"),
-    );
 
     sel.dom = {
       overlay: overlayNode,
@@ -419,7 +387,6 @@
       dimensions: dimensionsNode,
       toolbar: toolbarNode,
       handles,
-      formatChips,
       hint: hintNode,
       previewScreen: sel.dom.previewScreen,
     };
@@ -430,48 +397,6 @@
     document.addEventListener("keydown", onSelectionKeyDown, true);
     bindFreezeListeners();
     bindSelectionGuardListeners();
-    highlightFormat(cachedFormat);
-    syncToolbarFormat();
-  }
-
-  function highlightFormat(format) {
-    sel.dom.formatChips.forEach((chip) => {
-      const active = chip.dataset.format === format;
-      chip.classList.toggle("is-active", active);
-      chip.setAttribute("aria-pressed", active ? "true" : "false");
-    });
-  }
-
-  function syncToolbarFormat() {
-    try {
-      chrome.storage.local.get("lassoFormat", ({ lassoFormat }) => {
-        const format = FORMAT_CHIP_SET.has(lassoFormat)
-          ? lassoFormat
-          : DEFAULT_FORMAT;
-        cachedFormat = format;
-        // This async read can resolve after a fast chip click or after the
-        // toolbar was torn down/rebuilt. In both cases the user's choice (or
-        // the new session) wins, so don't overwrite it with the stored value.
-        if (sel.formatPicked || !sel.dom.toolbar) return;
-        highlightFormat(format);
-      });
-    } catch {
-      highlightFormat(DEFAULT_FORMAT);
-    }
-  }
-
-  function selectFormat(format) {
-    if (!FORMAT_CHIP_SET.has(format)) return;
-    sel.formatPicked = true;
-    cachedFormat = format;
-    highlightFormat(format);
-    // The capture pipeline reads this at export time, so the choice applies
-    // to the next download (and persists for future captures).
-    try {
-      chrome.storage.local.set({ lassoFormat: format });
-    } catch {
-      // storage unavailable; highlight still reflects the choice
-    }
   }
 
   function isLockedPhase() {
@@ -1144,14 +1069,6 @@
   }
 
   function onToolbarClick(e) {
-    const chip = e.target.closest(".lasso-format-chip");
-    if (chip) {
-      e.preventDefault();
-      e.stopPropagation();
-      selectFormat(chip.dataset.format);
-      return;
-    }
-
     const btn = e.target.closest("button[data-action]");
     if (!btn) return;
 
@@ -1234,7 +1151,6 @@
     sel.captureInProgress = false;
     sel.captureScrollY = 0;
     sel.userResized = false;
-    sel.formatPicked = false;
     sel.hoverTarget = null;
     clearPickedItems();
     sel.pickAnchorDocRect = null;
@@ -1257,7 +1173,6 @@
       dimensions: null,
       toolbar: null,
       handles: [],
-      formatChips: [],
       hint: null,
       previewScreen: null,
     };
