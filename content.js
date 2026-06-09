@@ -85,7 +85,9 @@
         return;
       }
       if (options.textExtractDone) {
-        window.LassoSelection.onTextExtractDone(options.textExtractDone);
+        // Fire-and-forget: it handles its own errors (clipboard write is the
+        // only await, wrapped in try/catch), so a floating promise is fine.
+        void window.LassoSelection.onTextExtractDone(options.textExtractDone);
         return;
       }
       if (options.finalize) {

@@ -120,13 +120,36 @@
     });
   }
 
+  // Gemini reads text fine from a moderately sized image, so cap the longest
+  // edge before upload. Bounds both the runtime message and the API payload on
+  // large captures without hurting recognition.
+  const TEXT_MAX_EDGE = 2048;
+
+  async function toTextDataUrl(blob) {
+    const bitmap = await createImageBitmap(blob);
+    const longest = Math.max(bitmap.width, bitmap.height);
+    if (longest <= TEXT_MAX_EDGE) {
+      bitmap.close();
+      return blobToDataUrl(blob);
+    }
+    const scale = TEXT_MAX_EDGE / longest;
+    const canvas = new OffscreenCanvas(
+      Math.round(bitmap.width * scale),
+      Math.round(bitmap.height * scale),
+    );
+    canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    const scaled = await canvas.convertToBlob({ type: "image/png" });
+    return blobToDataUrl(scaled);
+  }
+
   // Send the captured image to the background for Gemini text extraction. The
   // background answers on the same channel, so the result comes straight back.
   async function extractText(blob) {
     onCaptureComplete({ textExtractStarted: true });
     let result;
     try {
-      const dataURL = await blobToDataUrl(blob);
+      const dataURL = await toTextDataUrl(blob);
       // `target` marks this for the background only; content scripts in other
       // tabs receive the broadcast too and drop it on the target guard.
       result = await chrome.runtime.sendMessage({
