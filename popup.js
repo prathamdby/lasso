@@ -30,11 +30,19 @@ chrome.storage.local.get("lassoGeminiKey").then(({ lassoGeminiKey }) => {
 });
 
 function saveKey() {
-  chrome.storage.local.set({ lassoGeminiKey: keyInput.value.trim() });
-  saveBtn.textContent = "Saved";
-  setTimeout(() => {
-    saveBtn.textContent = "Save";
-  }, 1200);
+  chrome.storage.local
+    .set({ lassoGeminiKey: keyInput.value.trim() })
+    .then(() => {
+      saveBtn.textContent = "Saved";
+    })
+    .catch(() => {
+      saveBtn.textContent = "Failed";
+    })
+    .finally(() => {
+      setTimeout(() => {
+        saveBtn.textContent = "Save";
+      }, 1200);
+    });
 }
 
 saveBtn.addEventListener("click", saveKey);

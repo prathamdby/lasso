@@ -127,8 +127,11 @@
     let result;
     try {
       const dataURL = await blobToDataUrl(blob);
+      // `target` marks this for the background only; content scripts in other
+      // tabs receive the broadcast too and drop it on the target guard.
       result = await chrome.runtime.sendMessage({
         type: LassoMsg.EXTRACT_TEXT,
+        target: "background",
         dataURL,
       });
     } catch (err) {
