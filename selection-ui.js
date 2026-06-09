@@ -602,21 +602,6 @@
     return unionRects(pickRectsForUnion(null, scrollX, scrollY));
   }
 
-  function pickCropWouldClip(
-    scrollX = window.scrollX,
-    scrollY = window.scrollY,
-  ) {
-    const view = pickUnionViewportRect(scrollX, scrollY);
-    if (!view) return false;
-    const normalized = normalizeRect(view);
-    return (
-      normalized.x !== view.x ||
-      normalized.y !== view.y ||
-      normalized.width !== view.width ||
-      normalized.height !== view.height
-    );
-  }
-
   async function waitForPickAddIdle() {
     if (sel.pickAddPromise) await sel.pickAddPromise;
   }
@@ -1090,13 +1075,6 @@
     await waitForPickAddIdle();
     if (!sel.rect) return;
 
-    if (sel.mode === "pick" && pickCropWouldClip()) {
-      showNotice(
-        "Selection is too large for one screenshot. Pick elements closer together.",
-      );
-      return;
-    }
-
     sel.captureInProgress = true;
     sel.captureScrollY = window.scrollY;
     hideCaptureChrome();
@@ -1214,12 +1192,6 @@
       await waitForPickAddIdle();
       if (!sel.userResized && sel.pickedItems.length) {
         recomputePickRect(window.scrollX, sel.captureScrollY);
-      }
-      if (
-        sel.mode === "pick" &&
-        pickCropWouldClip(window.scrollX, sel.captureScrollY)
-      ) {
-        return null;
       }
       return rectForCapture(sel);
     },

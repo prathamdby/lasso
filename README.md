@@ -54,7 +54,7 @@ In preview mode you can hover to pick an element, **Shift+click** to add more el
 | **Pick**      | Popup → Pick      | Hover elements, click to lock. Shift+click to add more into one bounding box.              |
 | **Freestyle** | Popup → Freestyle | Drag a custom box on the page.                                                             |
 
-After a selection is locked, use the toolbar to **copy** (`Ctrl+C`) or **download** (`Ctrl+S`). Press `Esc` to cancel. Multi-element picks must fit in one viewport shot; if the combined box is too large, Lasso shows an error instead of cropping silently.
+After a selection is locked, use the toolbar to **copy** (`Ctrl+C`) or **download** (`Ctrl+S`). Press `Esc` to cancel. If a multi-element pick union extends beyond the viewport, Lasso crops it to the visible area and captures that region.
 
 ## Export format
 
