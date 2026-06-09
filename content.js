@@ -80,8 +80,12 @@
         window.LassoSelection.markCaptureInactive();
         return;
       }
-      if (options.ocrStarted) {
-        window.LassoSelection.onOcrStarted(options);
+      if (options.textExtractStarted) {
+        window.LassoSelection.onTextExtractStarted();
+        return;
+      }
+      if (options.textExtractDone) {
+        window.LassoSelection.onTextExtractDone(options.textExtractDone);
         return;
       }
       if (options.finalize) {
@@ -91,9 +95,9 @@
   });
 
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-    // runtime.sendMessage also reaches content scripts, so ignore messages
-    // addressed to another extension context (background↔offscreen OCR
-    // traffic). Tab-targeted relays carry no `target`.
+    // runtime.sendMessage also reaches content scripts in other tabs; ignore
+    // anything addressed to another extension context. Tab-targeted relays
+    // carry no `target`.
     if (msg.target) return false;
 
     switch (msg.type) {
@@ -184,21 +188,6 @@
 
       case LassoMsg.CAPTURE_FAILED:
         window.LassoSelection.onCaptureFailed(msg.message);
-        sendResponse({ ok: true });
-        break;
-
-      case LassoMsg.OCR_PROGRESS:
-        window.LassoSelection.onOcrProgress(msg.progress);
-        sendResponse({ ok: true });
-        break;
-
-      case LassoMsg.OCR_RESULT:
-        window.LassoSelection.onOcrResult(msg.text, msg.words);
-        sendResponse({ ok: true });
-        break;
-
-      case LassoMsg.OCR_ERROR:
-        window.LassoSelection.onOcrError(msg.message);
         sendResponse({ ok: true });
         break;
 

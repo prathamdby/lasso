@@ -62,16 +62,19 @@ Once a selection is locked, the capture toolbar shows **PNG** (lossless, default
 
 Copies to the clipboard are always PNG — the async clipboard reliably accepts only PNG — so the format choice affects downloaded files, not clipboard copies.
 
-## Extract text (OCR)
+## Extract text
 
-The toolbar also has a **Text** button that pulls the text out of your selection and lays it over the selection as a selectable overlay — drag to highlight, or hit **Copy**.
+The toolbar also has a **Text** button that extracts the text from your selection and copies it to the clipboard.
 
-It works two ways automatically:
+> **Privacy:** Text extraction sends the selected image to Google Gemini. Unlike the screenshot features — which run entirely on your machine — this one makes a network request. It only runs when you press **Text**.
 
-- **Real page text** — if the selection covers HTML text, Lasso reads it straight from the DOM. Instant and exact.
-- **OCR** — for text baked into pixels (images, `<canvas>`, video frames), Lasso recognizes it with a bundled, on-device [Tesseract](https://github.com/naptha/tesseract.js) engine (English). The image never leaves your machine.
+It needs a Gemini API key, entered in the extension popup and stored locally with `chrome.storage` (never bundled with the extension):
 
-The OCR engine (vendored under `vendor/tesseract/`) loads only the first time you use it, and runs in an offscreen document so it never blocks the page. Text extraction is available for the Visible, Pick, and Freestyle selections (not Full page).
+1. Get a free key from [Google AI Studio](https://aistudio.google.com/apikey).
+2. Open the Lasso popup, paste it into **Gemini API key**, and hit **Save**.
+3. Select a region and press **Text** — the extracted text lands on your clipboard.
+
+Extraction uses `gemini-2.5-flash-lite` and is available for the Visible, Pick, and Freestyle selections (not Full page).
 
 ## Keyboard shortcuts
 
@@ -109,11 +112,10 @@ flowchart LR
 | `scripting`      | Inject capture UI when needed.                                                               |
 | `downloads`      | Save PNG files.                                                                              |
 | `clipboardWrite` | Copy PNG to clipboard.                                                                       |
-| `storage`        | Remember your selected download format.                                                      |
-| `offscreen`      | Run on-device OCR (Tesseract/WASM) off the service worker.                                   |
+| `storage`        | Remember your selected download format and Gemini API key.                                   |
 | `<all_urls>`     | Run on any site you screenshot and handle the global hotkey without opening the popup first. |
 
-Lasso does not send page content to any external service.
+Screenshots are produced entirely on your machine. The only data Lasso sends anywhere is the selected image, sent to Google Gemini when you press the **Text** button — see [Extract text](#extract-text).
 
 ## Development
 
@@ -127,12 +129,10 @@ Project layout:
 | `content.js`                            | Content-script entry and message dispatch.                    |
 | `capture-pipeline.js`                   | Crop, stitch, and export.                                     |
 | `fixed-elements.js`                     | Hide and restore fixed/sticky elements.                       |
-| `selection-ui.js`                       | Overlay, selection, toolbar UI, and the OCR text overlay.     |
+| `selection-ui.js`                       | Overlay, selection, and toolbar UI.                           |
 | `content.css`                           | In-page capture chrome.                                       |
 | `hotkey.js`                             | `Ctrl+Shift+S` listener on each tab.                          |
-| `popup.html` / `popup.js` / `popup.css` | Toolbar popup.                                                |
-| `offscreen.html` / `offscreen.js`       | Offscreen document that runs Tesseract OCR.                   |
-| `vendor/tesseract/`                     | Vendored Tesseract.js engine + English language data.         |
+| `popup.html` / `popup.js` / `popup.css` | Toolbar popup and Gemini API key input.                       |
 | `icons/`                                | Extension icons (`icon.svg` source, PNG sizes for the store). |
 
 After code changes, reload the extension on `chrome://extensions`.

@@ -223,9 +223,9 @@
   }
 
   function startCaptureUI({ mode, hideFixed, preview = false }) {
-    // Dismiss any leftover text overlay/bar from a prior OCR (the selection may
-    // already be inactive, so cleanupSelection alone wouldn't catch it).
-    closeTextUi();
+    // Dismiss any leftover "Extracting…" status from a prior run (the selection
+    // may already be inactive, so cleanupSelection alone wouldn't catch it).
+    dismissTextStatus();
     if (sel.active) cleanupSelection();
 
     sel.active = true;
@@ -1209,28 +1209,11 @@
     });
   }
 
-  // Hybrid text extraction: prefer real DOM text under the selection (instant,
-  // exact); fall back to OCR on the captured pixels when there's none (images,
-  // canvas, video).
+  // Text extraction: capture the selected region and send it to Gemini, then
+  // copy the returned text to the clipboard.
   async function extractText() {
     await waitForPickAddIdle();
     if (!sel.rect || sel.mode === "fullpage") return;
-
-    const rect = { ...sel.rect };
-    const fullpage = sel.mode === "fullpage";
-
-    const dom = collectSelectionText();
-    if (isMeaningfulText(dom.text)) {
-      cleanupSelection();
-      showTextResult({
-        text: dom.text,
-        range: dom.range,
-        words: dom.words,
-        rect,
-        fullpage,
-      });
-      return;
-    }
 
     if (sel.mode === "pick" && pickCropWouldClip()) {
       showNotice(
@@ -1239,7 +1222,6 @@
       return;
     }
 
-    pendingOcr = { rect, fullpage, dpr: window.devicePixelRatio };
     sel.captureInProgress = true;
     sel.captureScrollY = window.scrollY;
     hideCaptureChrome();
@@ -1248,347 +1230,71 @@
       type: LassoMsg.SELECTION_CAPTURE,
       mode: sel.mode,
       hideFixed: sel.hideFixed,
-      action: "ocr",
+      action: "text",
     });
   }
 
-  function collectSelectionText() {
-    // Element picks are discrete and bounded, so select them natively.
-    if (sel.pickedItems.length) {
-      const text = sel.pickedItems
-        .map((item) => (item.el?.isConnected ? item.el.innerText || "" : ""))
-        .join("\n")
-        .replace(/\n{3,}/g, "\n\n")
-        .trim();
-      const els = sel.pickedItems
-        .map((i) => i.el)
-        .filter((e) => e?.isConnected);
-      let range = null;
-      if (els.length) {
-        range = document.createRange();
-        try {
-          range.setStartBefore(els[0]);
-          range.setEndAfter(els[els.length - 1]);
-        } catch {
-          range = null;
-        }
+  // Persistent "Extracting text…" status; replaced by the final result notice.
+  let textStatusEl = null;
+  let textBusy = false;
+
+  function showTextStatus(message) {
+    dismissTextStatus();
+    const el = document.createElement("div");
+    el.id = "lasso-notice";
+    el.textContent = message;
+    document.body.append(el);
+    textStatusEl = el;
+  }
+
+  function dismissTextStatus() {
+    textStatusEl?.remove();
+    textStatusEl = null;
+  }
+
+  function onTextExtractStarted() {
+    sel.captureInProgress = false;
+    // The capture may have been cancelled after dispatch; if the selection is
+    // already gone, don't show a status for work the user walked away from.
+    if (!sel.active) return;
+    window.LassoFixed.restoreFixedElements();
+    cleanupSelection();
+    textBusy = true;
+    showTextStatus("Extracting text…");
+  }
+
+  async function onTextExtractDone(result) {
+    // Dropped if the user started a new capture while this was in flight.
+    if (!textBusy) return;
+    textBusy = false;
+    dismissTextStatus();
+
+    if (!result || result.ok === false) {
+      if (result?.code === "NO_KEY") {
+        showNotice("Add your Gemini API key in the Lasso popup to extract text.");
+      } else {
+        showNotice(result?.message || "Text extraction failed");
       }
-      return { text, range, words: null };
+      return;
     }
 
-    // Freestyle/region: gather only the words whose box falls in the rect, so
-    // the result is precise instead of sweeping the whole page.
-    const words = collectWordsInRect(sel.rect);
-    return {
-      text: words
-        .map((w) => w.text)
-        .join(" ")
-        .trim(),
-      range: null,
-      words,
-    };
-  }
-
-  function collectWordsInRect(rect) {
-    const root = document.body;
-    if (!root) return [];
-
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-      acceptNode(node) {
-        if (!node.nodeValue || !node.nodeValue.trim()) {
-          return NodeFilter.FILTER_REJECT;
-        }
-        if (!isPageEl(node.parentElement)) return NodeFilter.FILTER_REJECT;
-        return NodeFilter.FILTER_ACCEPT;
-      },
-    });
-
-    const words = [];
-    let node;
-    while ((node = walker.nextNode())) {
-      const nodeRange = document.createRange();
-      nodeRange.selectNodeContents(node);
-      if (!rectsIntersect(nodeRange.getBoundingClientRect(), rect)) continue;
-
-      const value = node.nodeValue;
-      const token = /\S+/g;
-      let m;
-      while ((m = token.exec(value))) {
-        const wordRange = document.createRange();
-        try {
-          wordRange.setStart(node, m.index);
-          wordRange.setEnd(node, m.index + m[0].length);
-        } catch {
-          continue;
-        }
-        const r = wordRange.getBoundingClientRect();
-        if (r.width && r.height && rectsIntersect(r, rect)) {
-          words.push({
-            text: m[0],
-            rect: { x: r.left, y: r.top, width: r.width, height: r.height },
-          });
-        }
-      }
+    const text = (result.text || "").trim();
+    if (!text) {
+      showNotice("No text found");
+      return;
     }
-    return words;
-  }
 
-  function rectsIntersect(a, b) {
-    return (
-      a.left < b.x + b.width &&
-      a.left + a.width > b.x &&
-      a.top < b.y + b.height &&
-      a.top + a.height > b.y
-    );
-  }
-
-  function isMeaningfulText(text) {
-    return (
-      !!text && text.replace(/\s/g, "").length >= 2 && /[\p{L}\p{N}]/u.test(text)
-    );
-  }
-
-  // Result UI: a small floating bar (Copy / Close). For OCR the recognized
-  // words are also laid over the image as an invisible, selectable layer
-  // (Live Text); for real page text the underlying DOM is selected in place.
-  let textUi = null;
-  let pendingOcr = null;
-
-  function buildTextBar() {
-    const bar = document.createElement("div");
-    bar.id = "lasso-text-bar";
-    bar.innerHTML = `
-      <span class="lasso-text-status" role="status"></span>
-      <button type="button" class="lasso-text-copy" data-text="copy">Copy</button>
-      <button type="button" class="lasso-text-close" data-text="close" aria-label="Close">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
-      </button>
-    `;
-    bar.addEventListener("click", onTextBarClick);
-    document.body.append(bar);
-    document.addEventListener("keydown", onTextKeyDown, true);
-    textUi = {
-      bar,
-      overlay: null,
-      status: bar.querySelector(".lasso-text-status"),
-      copyBtn: bar.querySelector(".lasso-text-copy"),
-      getText: () => "",
-      target: null,
-    };
-    return textUi;
-  }
-
-  function positionTextBar(rect, fullpage) {
-    const bar = textUi.bar;
-    const margin = 12;
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    const bw = bar.offsetWidth || 180;
-    const bh = bar.offsetHeight || 40;
-
-    let left = fullpage
-      ? (vw - bw) / 2
-      : Math.min(rect.x + rect.width - bw, vw - bw - margin);
-    let top = fullpage ? margin : rect.y + rect.height + 8;
-    left = Math.max(margin, left);
-    if (top + bh > vh - margin) top = Math.max(margin, rect.y - bh - 8);
-
-    bar.style.left = Math.round(left) + "px";
-    bar.style.top = Math.round(top) + "px";
-  }
-
-  // DOM text result. Element picks select natively; region picks get the same
-  // invisible word overlay as OCR, bounded to the drawn rectangle.
-  function showTextResult({ text, range, words, rect, fullpage }) {
-    buildTextBar();
-    textUi.getText = () => text;
-    textUi.status.textContent = "";
-    textUi.copyBtn.disabled = !text;
-
-    if (words && words.length) {
-      renderWordOverlay(
-        words.map((w) => ({
-          text: w.text,
-          left: w.rect.x - rect.x,
-          top: w.rect.y - rect.y,
-          width: w.rect.width,
-          height: w.rect.height,
-        })),
-        rect,
-      );
-    } else if (range) {
-      selectRange(range);
-    }
-    positionTextBar(rect, fullpage);
-  }
-
-  function selectRange(range) {
-    const selection = window.getSelection();
-    if (!selection) return;
-    selection.removeAllRanges();
-    try {
-      selection.addRange(range);
-    } catch {
-      // range may be invalid after layout changes
-    }
-  }
-
-  // Invisible, selectable words laid over the captured region. `items` are in
-  // CSS pixels relative to the rect origin.
-  function renderWordOverlay(items, rect) {
-    const overlay = document.createElement("div");
-    overlay.id = "lasso-text-layer";
-    overlay.style.left = rect.x + "px";
-    overlay.style.top = rect.y + "px";
-    overlay.style.width = rect.width + "px";
-    overlay.style.height = rect.height + "px";
-
-    for (const it of items) {
-      const span = document.createElement("span");
-      span.className = "lasso-text-word";
-      // Trailing space keeps copied/selected text word-separated.
-      span.textContent = it.text + " ";
-      span.style.left = it.left + "px";
-      span.style.top = it.top + "px";
-      span.style.width = it.width + "px";
-      span.style.height = it.height + "px";
-      span.style.fontSize = Math.max(6, it.height * 0.86) + "px";
-      overlay.appendChild(span);
-    }
-    document.body.append(overlay);
-    textUi.overlay = overlay;
-  }
-
-  function onTextBarClick(e) {
-    const btn = e.target.closest("[data-text]");
-    if (!btn) return;
-    e.preventDefault();
-    if (btn.dataset.text === "close") return closeTextUi();
-    if (btn.dataset.text === "copy") return void copyText();
-  }
-
-  function onTextKeyDown(e) {
-    if (!textUi || e.key !== "Escape") return;
-    e.preventDefault();
-    e.stopPropagation();
-    closeTextUi();
-  }
-
-  async function copyText() {
-    if (!textUi) return;
-    const selected = window.getSelection?.().toString().trim();
-    const text = selected || textUi.getText();
-    if (!text) return;
     try {
       await navigator.clipboard.writeText(text);
       showNotice("Text copied to clipboard");
     } catch {
-      // leave the selection so the user can copy manually
+      showNotice("Couldn't copy text to clipboard");
     }
   }
-
-  function closeTextUi() {
-    if (!textUi) return;
-    clearOcrTimeout();
-    document.removeEventListener("keydown", onTextKeyDown, true);
-    window.getSelection()?.removeAllRanges();
-    textUi.overlay?.remove();
-    textUi.bar.remove();
-    textUi = null;
-  }
-
-  const OCR_TIMEOUT_MS = 60000;
-
-  function clearOcrTimeout() {
-    if (textUi?.ocrTimer) {
-      clearTimeout(textUi.ocrTimer);
-      textUi.ocrTimer = null;
-    }
-  }
-
-  // Guard against a reply that never arrives (dispatch error, offscreen death),
-  // so the bar can't sit on "Recognizing…" forever.
-  function armOcrTimeout() {
-    clearOcrTimeout();
-    if (!textUi) return;
-    textUi.ocrTimer = setTimeout(() => {
-      if (!textUi) return;
-      textUi.status.textContent = "Text recognition timed out";
-      textUi.copyBtn.disabled = true;
-      textUi.ocrTimer = null;
-    }, OCR_TIMEOUT_MS);
-  }
-
-  function onOcrStarted(options = {}) {
-    sel.captureInProgress = false;
-    // The capture may have been cancelled after OCR was dispatched; if the
-    // selection is already gone, don't reopen the text UI.
-    if (!sel.active) {
-      pendingOcr = null;
-      return;
-    }
-    window.LassoFixed.restoreFixedElements();
-    const target = pendingOcr || {
-      rect: { x: 0, y: 0, width: 320, height: 0 },
-      fullpage: true,
-      dpr: window.devicePixelRatio,
-    };
-    pendingOcr = null;
-    cleanupSelection(options);
-    buildTextBar();
-    textUi.target = target;
-    textUi.status.textContent = "Recognizing text…";
-    textUi.copyBtn.disabled = true;
-    positionTextBar(target.rect, target.fullpage);
-    armOcrTimeout();
-  }
-
-  function onOcrProgress(progress) {
-    if (!textUi) return;
-    // Progress means the worker is alive; push the timeout back.
-    armOcrTimeout();
-    textUi.status.textContent = `Recognizing text… ${Math.round((progress || 0) * 100)}%`;
-  }
-
-  function onOcrResult(text, words) {
-    if (!textUi) return;
-    clearOcrTimeout();
-    const value = (text || "").trim();
-    textUi.getText = () => value;
-    textUi.copyBtn.disabled = !value;
-    textUi.status.textContent = value ? "" : "No text found";
-
-    if (value && words?.length && textUi.target && !textUi.target.fullpage) {
-      const { rect, dpr } = textUi.target;
-      const d = dpr || 1;
-      const items = words
-        .filter((w) => w.bbox)
-        .map((w) => ({
-          text: w.text,
-          left: w.bbox.x0 / d,
-          top: w.bbox.y0 / d,
-          width: (w.bbox.x1 - w.bbox.x0) / d,
-          height: (w.bbox.y1 - w.bbox.y0) / d,
-        }));
-      renderWordOverlay(items, rect);
-      positionTextBar(rect, textUi.target.fullpage);
-    }
-  }
-
-  function onOcrError(message) {
-    // The text bar was dismissed before the job finished; don't surface a
-    // spurious failure notice for a result the user already walked away from.
-    if (!textUi) return;
-    clearOcrTimeout();
-    textUi.status.textContent = message || "Text recognition failed";
-    textUi.copyBtn.disabled = true;
-  }
-
   function cancelOperation() {
     if (!sel.active && !sel.captureInProgress) return;
 
     sel.captureInProgress = false;
-    pendingOcr = null;
     chrome.runtime.sendMessage({ type: LassoMsg.CANCEL_CAPTURE });
     window.LassoFixed.restoreFixedElements();
     cleanupSelection();
@@ -1604,7 +1310,7 @@
 
   function isLassoChrome(el) {
     return !!el?.closest?.(
-      ".lasso-handle, #lasso-toolbar, #lasso-preview-screen, .lasso-preview-action, .lasso-preview-cancel, #lasso-text-layer, #lasso-text-bar",
+      ".lasso-handle, #lasso-toolbar, #lasso-preview-screen, .lasso-preview-action, .lasso-preview-cancel",
     );
   }
 
@@ -1612,7 +1318,7 @@
     return (
       !!el &&
       !el.closest?.(
-        "#lasso-overlay, #lasso-selection, #lasso-hint, #lasso-preview-screen, #lasso-text-layer, #lasso-text-bar",
+        "#lasso-overlay, #lasso-selection, #lasso-hint, #lasso-preview-screen",
       )
     );
   }
@@ -1639,7 +1345,8 @@
   }
 
   function cleanupSelection(options = {}) {
-    closeTextUi();
+    dismissTextStatus();
+    textBusy = false;
     resetSelectionState();
     sel.dom.overlay?.remove();
     sel.dom.selection?.remove();
@@ -1707,10 +1414,8 @@
     cleanupSelection,
     onCaptureCancelled,
     onCaptureFailed,
-    onOcrStarted,
-    onOcrProgress,
-    onOcrResult,
-    onOcrError,
+    onTextExtractStarted,
+    onTextExtractDone,
     isCaptureActive: () => sel.captureInProgress,
     isActive: () => sel.active,
     markCaptureInactive,

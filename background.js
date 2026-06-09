@@ -16,14 +16,13 @@ const activeCaptures = new Map();
 const previewDebounce = new Map();
 const PREVIEW_DEBOUNCE_MS = 400;
 
-// Maps each OCR job id to the tab that requested it, so overlapping jobs from
-// different tabs route their progress/results back to the right place.
-const ocrJobs = new Map();
-// The latest job id per tab; replies from superseded jobs are dropped so a
-// stale result can't land in a newer text session.
-const latestOcrByTab = new Map();
-let ocrJobSeq = 0;
-let creatingOffscreen = null;
+// Text extraction is delegated to Gemini. The user's API key is stored locally
+// (chrome.storage.local) and never bundled with the extension.
+const GEMINI_MODEL = "gemini-2.5-flash-lite";
+const GEMINI_PROMPT =
+  "Extract all visible text from this image. Return only the text you see. " +
+  "Preserve line breaks and reading order as closely as possible. " +
+  "Do not summarize or explain.";
 
 chrome.runtime.onInstalled.addListener(() => {
   warmOpenTabs().catch(() => {});
@@ -97,42 +96,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
       break;
 
-    case LassoMsg.OCR_RUN:
-      // From a content script: crop image to recognize. Tag a job id so the
-      // offscreen replies route back only to the tab that asked.
-      if (sender.tab?.id) {
-        const jobId = ++ocrJobSeq;
-        ocrJobs.set(jobId, sender.tab.id);
-        latestOcrByTab.set(sender.tab.id, jobId);
-        forwardOcr(jobId, msg.dataURL).catch((err) => {
-          console.error("Lasso OCR failed:", err);
-          relayOcr(jobId, {
-            type: LassoMsg.OCR_ERROR,
-            message: err?.message || "Text recognition failed",
-          });
-          ocrJobs.delete(jobId);
-        });
-      }
-      break;
-
-    case LassoMsg.OCR_PROGRESS:
-      // From the offscreen document: forward progress to this job's tab only.
-      relayOcr(msg.jobId, { type: LassoMsg.OCR_PROGRESS, progress: msg.progress });
-      break;
-
-    case LassoMsg.OCR_RESULT:
-      relayOcr(msg.jobId, {
-        type: LassoMsg.OCR_RESULT,
-        text: msg.text,
-        words: msg.words,
-      });
-      ocrJobs.delete(msg.jobId);
-      break;
-
-    case LassoMsg.OCR_ERROR:
-      relayOcr(msg.jobId, { type: LassoMsg.OCR_ERROR, message: msg.message });
-      ocrJobs.delete(msg.jobId);
-      break;
+    case LassoMsg.EXTRACT_TEXT:
+      // From a content script: a captured image to extract text from. Answer on
+      // this channel so the result routes straight back to the calling tab.
+      extractTextWithGemini(msg.dataURL)
+        .then(sendResponse)
+        .catch((err) =>
+          sendResponse({
+            ok: false,
+            code: "ERROR",
+            message: err?.message || "Text extraction failed",
+          }),
+        );
+      return true;
 
     default:
       break;
@@ -141,40 +117,68 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   return false;
 });
 
-function relayOcr(jobId, message) {
-  const tabId = ocrJobs.get(jobId);
-  if (tabId == null) return;
-  // Drop replies from a job the tab has already moved past (newer OCR started).
-  if (latestOcrByTab.get(tabId) !== jobId) return;
-  sendToTab(tabId, message).catch(() => {
-    // tab may be gone
-  });
-}
-
-async function ensureOffscreen() {
-  if (await chrome.offscreen.hasDocument()) return;
-  if (!creatingOffscreen) {
-    creatingOffscreen = chrome.offscreen
-      .createDocument({
-        url: "offscreen.html",
-        reasons: ["WORKERS"],
-        justification: "Run on-device OCR (Tesseract) off the service worker.",
-      })
-      .finally(() => {
-        creatingOffscreen = null;
-      });
+async function extractTextWithGemini(dataURL) {
+  const { lassoGeminiKey } = await chrome.storage.local.get("lassoGeminiKey");
+  const key = (lassoGeminiKey || "").trim();
+  if (!key) {
+    return { ok: false, code: "NO_KEY", message: "No Gemini API key set" };
   }
-  await creatingOffscreen;
-}
 
-async function forwardOcr(jobId, dataURL) {
-  await ensureOffscreen();
-  await chrome.runtime.sendMessage({
-    type: LassoMsg.OCR_RUN,
-    target: "offscreen",
-    jobId,
-    dataURL,
-  });
+  const match = /^data:([^;]+);base64,(.*)$/.exec(dataURL || "");
+  if (!match) return { ok: false, code: "ERROR", message: "Invalid image data" };
+  const [, mimeType, data] = match;
+
+  let res;
+  try {
+    res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                { text: GEMINI_PROMPT },
+                { inline_data: { mime_type: mimeType, data } },
+              ],
+            },
+          ],
+          generationConfig: { temperature: 0 },
+        }),
+      },
+    );
+  } catch {
+    return { ok: false, code: "NETWORK", message: "Couldn't reach Gemini" };
+  }
+
+  if (!res.ok) {
+    let detail = "";
+    try {
+      detail = (await res.json())?.error?.message || "";
+    } catch {
+      // non-JSON error body
+    }
+    const badKey = res.status === 400 || res.status === 401 || res.status === 403;
+    return {
+      ok: false,
+      code: badKey ? "BAD_KEY" : "ERROR",
+      message:
+        detail || (badKey ? "Gemini rejected the API key" : `Gemini error (${res.status})`),
+    };
+  }
+
+  let json;
+  try {
+    json = await res.json();
+  } catch {
+    return { ok: false, code: "ERROR", message: "Bad response from Gemini" };
+  }
+  const text = (json?.candidates?.[0]?.content?.parts || [])
+    .map((p) => p.text || "")
+    .join("")
+    .trim();
+  return { ok: true, text };
 }
 
 function isCancelled(tabId) {

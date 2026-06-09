@@ -35,10 +35,10 @@
   }
 
   // The async clipboard reliably accepts only PNG, so copies stay lossless
-  // PNG; OCR also uses PNG for the cleanest recognition. The chosen format and
-  // quality apply to downloads.
+  // PNG; text extraction also sends a PNG for the cleanest read. The chosen
+  // format and quality apply to downloads.
   function outputFor(action, settings) {
-    if (action === "copy" || action === "ocr") {
+    if (action === "copy" || action === "text") {
       return { format: "png", mime: "image/png", quality: undefined };
     }
     const format = settings.format;
@@ -120,11 +120,23 @@
     });
   }
 
-  async function startOcr(blob) {
-    const dataURL = await blobToDataUrl(blob);
-    // Awaited so a failed dispatch rejects here instead of leaving the UI stuck
-    // on "Recognizing…" (the text bar is only shown after this resolves).
-    await chrome.runtime.sendMessage({ type: LassoMsg.OCR_RUN, dataURL });
+  // Send the captured image to the background for Gemini text extraction. The
+  // background answers on the same channel, so the result comes straight back.
+  async function extractText(blob) {
+    onCaptureComplete({ textExtractStarted: true });
+    let result;
+    try {
+      const dataURL = await blobToDataUrl(blob);
+      result = await chrome.runtime.sendMessage({
+        type: LassoMsg.EXTRACT_TEXT,
+        dataURL,
+      });
+    } catch (err) {
+      result = { ok: false, message: err?.message || "Text extraction failed" };
+    }
+    onCaptureComplete({
+      textExtractDone: result || { ok: false, message: "Text extraction failed" },
+    });
   }
 
   async function handleCropResult({ dataURL, rect, devicePixelRatio, action }) {
@@ -135,11 +147,10 @@
       const out = outputFor(action, await getExportSettings());
       const blob = await cropDataUrl(dataURL, rect, devicePixelRatio, out);
       // The user may have cancelled while we were cropping; don't export or
-      // start OCR (which would reopen the text UI) for an aborted capture.
+      // extract text for an aborted capture.
       if (!isActive()) return;
-      if (action === "ocr") {
-        await startOcr(blob);
-        onCaptureComplete({ ocrStarted: true });
+      if (action === "text") {
+        await extractText(blob);
       } else {
         await exportBlob(blob, action, out);
         onCaptureComplete({ finalize: true });
@@ -242,9 +253,8 @@
 
       // Abort if the user cancelled during the scroll/stitch.
       if (!isActive()) return;
-      if (action === "ocr") {
-        await startOcr(blob);
-        onCaptureComplete({ ocrStarted: true, truncated: !!truncated });
+      if (action === "text") {
+        await extractText(blob);
       } else {
         await exportBlob(blob, action, out);
         onCaptureComplete({ finalize: true, truncated: !!truncated });

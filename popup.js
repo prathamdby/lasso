@@ -20,3 +20,24 @@ function capture(mode) {
   });
   window.close();
 }
+
+// Gemini API key — stored locally, never bundled. Powers the Text button.
+const keyInput = document.getElementById("gemini-key");
+const saveBtn = document.getElementById("gemini-save");
+
+chrome.storage.local.get("lassoGeminiKey").then(({ lassoGeminiKey }) => {
+  if (lassoGeminiKey) keyInput.value = lassoGeminiKey;
+});
+
+function saveKey() {
+  chrome.storage.local.set({ lassoGeminiKey: keyInput.value.trim() });
+  saveBtn.textContent = "Saved";
+  setTimeout(() => {
+    saveBtn.textContent = "Save";
+  }, 1200);
+}
+
+saveBtn.addEventListener("click", saveKey);
+keyInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") saveKey();
+});

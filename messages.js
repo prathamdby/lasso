@@ -16,8 +16,8 @@ const LassoMsg = Object.freeze({
   RESTORE_FIXED_ELEMENTS: "restoreFixedElements",
   CAPTURE_CANCELLED: "captureCancelled",
   CAPTURE_FAILED: "captureFailed",
-  OCR_RUN: "ocrRun",
-  OCR_PROGRESS: "ocrProgress",
-  OCR_RESULT: "ocrResult",
-  OCR_ERROR: "ocrError",
+  // Content → background request to extract text from a captured image via
+  // Gemini. Background answers on the same channel with { ok, text } or
+  // { ok: false, code, message }, so no separate result/error messages needed.
+  EXTRACT_TEXT: "extractText",
 });

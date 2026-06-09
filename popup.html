@@ -116,6 +116,33 @@
           <span class="setting-track" aria-hidden="true"></span>
           <span class="setting-label">Hide fixed elements during capture</span>
         </label>
+
+        <div class="api-key">
+          <label class="api-key-label" for="gemini-key">Gemini API key</label>
+          <div class="api-key-row">
+            <input
+              type="password"
+              id="gemini-key"
+              class="api-key-input"
+              placeholder="Paste your Gemini API key"
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <button type="button" id="gemini-save" class="api-key-save">
+              Save
+            </button>
+          </div>
+          <p class="api-key-hint">
+            Powers the <strong>Text</strong> button. The selected image is sent
+            to Google Gemini.
+            <a
+              href="https://aistudio.google.com/apikey"
+              target="_blank"
+              rel="noopener"
+              >Get a key</a
+            >
+          </p>
+        </div>
       </footer>
     </div>
     <script src="messages.js"></script>
