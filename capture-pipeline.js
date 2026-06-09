@@ -128,7 +128,9 @@
   async function toTextDataUrl(blob) {
     const bitmap = await createImageBitmap(blob);
     const longest = Math.max(bitmap.width, bitmap.height);
-    if (longest <= TEXT_MAX_EDGE) {
+    // `!longest` also catches 0/NaN dimensions, so the scale path below only
+    // runs on a real size larger than the cap (never divides by zero).
+    if (!longest || longest <= TEXT_MAX_EDGE) {
       bitmap.close();
       return blobToDataUrl(blob);
     }

@@ -96,19 +96,29 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
       break;
 
-    case LassoMsg.EXTRACT_TEXT:
+    case LassoMsg.EXTRACT_TEXT: {
       // From a content script: a captured image to extract text from. Answer on
-      // this channel so the result routes straight back to the calling tab.
+      // this channel (returning true keeps it open) so the result routes
+      // straight back to the calling tab. `respond` swallows the throw if that
+      // tab has since navigated away and closed the port.
+      const respond = (payload) => {
+        try {
+          sendResponse(payload);
+        } catch {
+          // calling tab is gone; nothing to answer
+        }
+      };
       extractTextWithGemini(msg.dataURL)
-        .then(sendResponse)
+        .then(respond)
         .catch((err) =>
-          sendResponse({
+          respond({
             ok: false,
             code: "ERROR",
             message: err?.message || "Text extraction failed",
           }),
         );
       return true;
+    }
 
     default:
       break;
