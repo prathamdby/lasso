@@ -112,14 +112,23 @@ async function getActiveTab() {
 }
 
 async function ensureInjected(tabId) {
-  await chrome.scripting.insertCSS({
-    target: { tabId },
-    files: ["content.css"],
-  });
-  await chrome.scripting.executeScript({
-    target: { tabId },
-    files: CONTENT_SCRIPT_FILES,
-  });
+  try {
+    await chrome.scripting.insertCSS({
+      target: { tabId },
+      files: ["content.css"],
+    });
+  } catch {
+    // The manifest may have already injected the stylesheet.
+  }
+
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: CONTENT_SCRIPT_FILES,
+    });
+  } catch {
+    // The manifest may have already injected the content scripts.
+  }
 }
 
 const BADGE_CLEAR_MS = 4000;
