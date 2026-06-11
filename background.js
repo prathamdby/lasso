@@ -73,10 +73,20 @@ chrome.runtime.onStartup.addListener(() => {
 
 chrome.commands.onCommand.addListener((command) => {
   if (command !== "open-preview") return;
-  handlePreview(false).catch((err) =>
-    console.error("Lasso preview failed:", err),
-  );
+  handleCommandPreview();
 });
+
+async function handleCommandPreview() {
+  let tabId;
+  try {
+    const tab = await getActiveTab();
+    tabId = tab.id;
+    await handlePreview(false, tabId);
+  } catch (err) {
+    console.error("Lasso preview failed:", err);
+    showActionError(tabId, "Can't capture this page");
+  }
+}
 
 async function warmOpenTabs() {
   const tabs = await chrome.tabs.query({ url: ["http://*/*", "https://*/*"] });
@@ -93,15 +103,25 @@ async function warmOpenTabs() {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   switch (msg.type) {
     case LassoMsg.CAPTURE:
-      handleCapture(msg.mode, msg.hideFixed).catch((err) =>
-        console.error("Lasso capture failed:", err),
-      );
+      handleCapture(msg.mode, msg.hideFixed).catch(async (err) => {
+        console.error("Lasso capture failed:", err);
+        let tabId = sender.tab?.id;
+        if (tabId == null) {
+          try {
+            tabId = (await getActiveTab()).id;
+          } catch {
+            // Fall back to the global badge when there is no active tab.
+          }
+        }
+        showActionError(tabId, "Can't capture this page");
+      });
       break;
 
     case LassoMsg.OPEN_PREVIEW:
-      handlePreview(msg.hideFixed, sender.tab?.id).catch((err) =>
-        console.error("Lasso preview failed:", err),
-      );
+      handlePreview(msg.hideFixed, sender.tab?.id).catch((err) => {
+        console.error("Lasso preview failed:", err);
+        showActionError(sender.tab?.id, "Can't capture this page");
+      });
       break;
 
     case LassoMsg.DOWNLOAD:
@@ -198,7 +218,7 @@ async function ensureInjected(tabId) {
       files: ["content.css"],
     });
   } catch {
-    // already injected
+    // The manifest may have already injected the stylesheet.
   }
 
   try {
@@ -207,8 +227,45 @@ async function ensureInjected(tabId) {
       files: CONTENT_SCRIPT_FILES,
     });
   } catch {
-    // already injected
+    // The manifest may have already injected the content scripts.
   }
+}
+
+const BADGE_CLEAR_MS = 4000;
+const BADGE_CLEAR_ALARM_PREFIX = "lasso-clear-action-error:";
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (!alarm.name.startsWith(BADGE_CLEAR_ALARM_PREFIX)) return;
+
+  const targetKey = alarm.name.slice(BADGE_CLEAR_ALARM_PREFIX.length);
+  const tabId = targetKey === "default" ? undefined : Number(targetKey);
+  if (tabId != null && Number.isNaN(tabId)) return;
+
+  clearActionError(tabId);
+});
+
+function getActionErrorTarget(tabId) {
+  return tabId != null ? { tabId } : {};
+}
+
+function getBadgeClearAlarmName(tabId) {
+  return `${BADGE_CLEAR_ALARM_PREFIX}${tabId ?? "default"}`;
+}
+
+function showActionError(tabId, message) {
+  const target = getActionErrorTarget(tabId);
+  chrome.action.setBadgeBackgroundColor({ ...target, color: "#d93025" });
+  chrome.action.setBadgeText({ ...target, text: "!" });
+  chrome.action.setTitle({ ...target, title: `Lasso: ${message}` });
+  chrome.alarms.create(getBadgeClearAlarmName(tabId), {
+    when: Date.now() + BADGE_CLEAR_MS,
+  });
+}
+
+function clearActionError(tabId) {
+  const target = getActionErrorTarget(tabId);
+  chrome.action.setBadgeText({ ...target, text: "" });
+  chrome.action.setTitle({ ...target, title: "Lasso" });
 }
 
 function sendToTab(tabId, message) {
