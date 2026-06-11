@@ -66,8 +66,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           saveAs: false,
         },
         (downloadId) => {
-          if (!msg.revoke) return;
-          if (downloadId == null || sender.tab?.id == null) return;
+          if (!msg.revoke || sender.tab?.id == null) return;
+          if (downloadId == null) {
+            sendToTab(sender.tab.id, {
+              type: LassoMsg.REVOKE_BLOB_URL,
+              url: msg.url,
+            }).catch(() => {
+              // tab gone; navigation already released the blob
+            });
+            return;
+          }
           pendingBlobRevokes.set(downloadId, {
             tabId: sender.tab.id,
             url: msg.url,
