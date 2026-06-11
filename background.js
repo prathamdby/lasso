@@ -26,9 +26,13 @@ chrome.runtime.onStartup.addListener(() => {
 
 chrome.commands.onCommand.addListener((command) => {
   if (command !== "open-preview") return;
-  handlePreview(false).catch((err) =>
-    console.error("Lasso preview failed:", err),
-  );
+  handlePreview(false).catch(async (err) => {
+    console.error("Lasso preview failed:", err);
+    const tabId = (
+      await chrome.tabs.query({ active: true, currentWindow: true })
+    )[0]?.id;
+    showActionError(tabId, "Can't capture this page");
+  });
 });
 
 async function warmOpenTabs() {
@@ -46,15 +50,20 @@ async function warmOpenTabs() {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   switch (msg.type) {
     case LassoMsg.CAPTURE:
-      handleCapture(msg.mode, msg.hideFixed).catch((err) =>
-        console.error("Lasso capture failed:", err),
-      );
+      handleCapture(msg.mode, msg.hideFixed).catch(async (err) => {
+        console.error("Lasso capture failed:", err);
+        const tabId = (
+          await chrome.tabs.query({ active: true, currentWindow: true })
+        )[0]?.id;
+        showActionError(tabId, "Can't capture this page");
+      });
       break;
 
     case LassoMsg.OPEN_PREVIEW:
-      handlePreview(msg.hideFixed, sender.tab?.id).catch((err) =>
-        console.error("Lasso preview failed:", err),
-      );
+      handlePreview(msg.hideFixed, sender.tab?.id).catch((err) => {
+        console.error("Lasso preview failed:", err);
+        showActionError(sender.tab?.id, "Can't capture this page");
+      });
       break;
 
     case LassoMsg.DOWNLOAD:
@@ -106,23 +115,27 @@ async function getActiveTab() {
 }
 
 async function ensureInjected(tabId) {
-  try {
-    await chrome.scripting.insertCSS({
-      target: { tabId },
-      files: ["content.css"],
-    });
-  } catch {
-    // already injected
-  }
+  await chrome.scripting.insertCSS({
+    target: { tabId },
+    files: ["content.css"],
+  });
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files: CONTENT_SCRIPT_FILES,
+  });
+}
 
-  try {
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      files: CONTENT_SCRIPT_FILES,
-    });
-  } catch {
-    // already injected
-  }
+const BADGE_CLEAR_MS = 4000;
+
+function showActionError(tabId, message) {
+  const target = tabId != null ? { tabId } : {};
+  chrome.action.setBadgeBackgroundColor({ ...target, color: "#d93025" });
+  chrome.action.setBadgeText({ ...target, text: "!" });
+  chrome.action.setTitle({ ...target, title: `Lasso: ${message}` });
+  setTimeout(() => {
+    chrome.action.setBadgeText({ ...target, text: "" });
+    chrome.action.setTitle({ ...target, title: "Lasso" });
+  }, BADGE_CLEAR_MS);
 }
 
 function sendToTab(tabId, message) {
