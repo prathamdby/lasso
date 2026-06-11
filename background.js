@@ -456,10 +456,21 @@ async function captureFullPage(
   if (await bailIfCancelled(tab.id, tab, hideFixed, originalScrollY)) return;
 
   const dims = await sendToTab(tab.id, { type: LassoMsg.GET_PAGE_DIMENSIONS });
-  const { totalHeight, totalWidth, viewportHeight, devicePixelRatio } = dims;
+  const { totalHeight, viewportHeight, devicePixelRatio } = dims;
 
-  const captures = [];
+  const begin = await sendToTab(tab.id, {
+    type: LassoMsg.STITCH_BEGIN,
+    totalHeight,
+    viewportHeight,
+    devicePixelRatio,
+    exportRect: params.skipCrop ? null : params.rect,
+    skipCrop: !!params.skipCrop,
+    action,
+  });
+  if (!begin?.ok) throw new Error(begin?.error || "Stitch setup failed");
+
   let y = 0;
+  let slices = 0;
   let truncated = false;
 
   while (y < totalHeight) {
@@ -471,10 +482,18 @@ async function captureFullPage(
     if (await bailIfCancelled(tab.id, tab, hideFixed, originalScrollY)) return;
 
     const dataURL = await captureVisibleTabThrottled(tab.windowId);
-    captures.push({ dataURL, y: captureY });
+    const slice = await sendToTab(tab.id, {
+      type: LassoMsg.STITCH_SLICE,
+      dataURL,
+      y: captureY,
+    });
+    if (!slice?.ok) throw new Error(slice?.error || "Stitching failed");
+
+    slices += 1;
     y += viewportHeight;
 
-    if (captures.length >= FULLPAGE_SLICE_LIMIT) {
+    if (slice.full) break;
+    if (slices >= FULLPAGE_SLICE_LIMIT) {
       truncated = y < totalHeight;
       break;
     }
@@ -484,16 +503,9 @@ async function captureFullPage(
 
   await sendToTab(tab.id, { type: LassoMsg.SCROLL_TO, y: originalScrollY });
 
-  await sendToTab(tab.id, {
-    type: LassoMsg.STITCH,
-    captures,
-    totalWidth,
-    totalHeight,
-    viewportHeight,
-    devicePixelRatio,
-    exportRect: params.skipCrop ? null : params.rect,
-    skipCrop: !!params.skipCrop,
-    action,
+  const fin = await sendToTab(tab.id, {
+    type: LassoMsg.STITCH_FINALIZE,
     truncated,
   });
+  if (!fin?.ok) throw new Error(fin?.error || "Stitch export failed");
 }
