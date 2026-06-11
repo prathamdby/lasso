@@ -264,7 +264,6 @@
         finalize: true,
         error: err?.message || "Capture failed",
       });
-      throw err;
     }
   }
 
