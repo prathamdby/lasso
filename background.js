@@ -50,12 +50,9 @@ async function warmOpenTabs() {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   switch (msg.type) {
     case LassoMsg.CAPTURE:
-      handleCapture(msg.mode, msg.hideFixed).catch(async (err) => {
+      handleCapture(msg.mode, msg.hideFixed).catch((err) => {
         console.error("Lasso capture failed:", err);
-        const tabId = (
-          await chrome.tabs.query({ active: true, currentWindow: true })
-        )[0]?.id;
-        showActionError(tabId, "Can't capture this page");
+        showActionError(sender.tab?.id, "Can't capture this page");
       });
       break;
 
@@ -126,16 +123,23 @@ async function ensureInjected(tabId) {
 }
 
 const BADGE_CLEAR_MS = 4000;
+const badgeClearTimeouts = new Map();
 
 function showActionError(tabId, message) {
   const target = tabId != null ? { tabId } : {};
+  const targetKey = tabId ?? "default";
+  const previousTimeout = badgeClearTimeouts.get(targetKey);
+  if (previousTimeout) clearTimeout(previousTimeout);
+
   chrome.action.setBadgeBackgroundColor({ ...target, color: "#d93025" });
   chrome.action.setBadgeText({ ...target, text: "!" });
   chrome.action.setTitle({ ...target, title: `Lasso: ${message}` });
-  setTimeout(() => {
+  const timeoutId = setTimeout(() => {
     chrome.action.setBadgeText({ ...target, text: "" });
     chrome.action.setTitle({ ...target, title: "Lasso" });
+    badgeClearTimeouts.delete(targetKey);
   }, BADGE_CLEAR_MS);
+  badgeClearTimeouts.set(targetKey, timeoutId);
 }
 
 function sendToTab(tabId, message) {
