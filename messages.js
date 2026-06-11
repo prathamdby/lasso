@@ -16,4 +16,5 @@ const LassoMsg = Object.freeze({
   RESTORE_FIXED_ELEMENTS: "restoreFixedElements",
   CAPTURE_CANCELLED: "captureCancelled",
   CAPTURE_FAILED: "captureFailed",
+  REVOKE_BLOB_URL: "revokeBlobUrl",
 });

@@ -18,6 +18,7 @@ const CONTENT_SCRIPT_FILES = [
 
 const activeCaptures = new Map();
 const previewDebounce = new Map();
+const pendingBlobRevokes = new Map();
 const PREVIEW_DEBOUNCE_MS = 400;
 
 function sleep(ms) {
@@ -110,8 +111,27 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           filename: msg.filename || "screenshot.png",
           saveAs: false,
         },
-        () => {
-          if (msg.revoke) URL.revokeObjectURL(msg.url);
+        (downloadId) => {
+          if (!msg.revoke || sender.tab?.id == null) return;
+          if (downloadId == null) {
+            sendToTab(sender.tab.id, {
+              type: LassoMsg.REVOKE_BLOB_URL,
+              url: msg.url,
+            }).catch(() => {
+              // tab gone; navigation already released the blob
+            });
+            return;
+          }
+          pendingBlobRevokes.set(downloadId, {
+            tabId: sender.tab.id,
+            url: msg.url,
+          });
+          chrome.downloads.search({ id: downloadId }, (items) => {
+            const state = items?.[0]?.state;
+            if (state === "complete" || state === "interrupted") {
+              revokePendingBlobUrl(downloadId);
+            }
+          });
         },
       );
       break;
@@ -140,6 +160,26 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   return false;
 });
+
+chrome.downloads.onChanged.addListener((delta) => {
+  const state = delta.state?.current;
+  if (state !== "complete" && state !== "interrupted") return;
+
+  revokePendingBlobUrl(delta.id);
+});
+
+function revokePendingBlobUrl(downloadId) {
+  const pending = pendingBlobRevokes.get(downloadId);
+  if (!pending) return;
+  pendingBlobRevokes.delete(downloadId);
+
+  sendToTab(pending.tabId, {
+    type: LassoMsg.REVOKE_BLOB_URL,
+    url: pending.url,
+  }).catch(() => {
+    // tab gone; navigation already released the blob
+  });
+}
 
 function isCancelled(tabId) {
   return activeCaptures.get(tabId)?.cancelled === true;
