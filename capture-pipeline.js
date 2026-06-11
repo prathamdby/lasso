@@ -172,14 +172,20 @@
         throw new Error("No capture slices to stitch");
       }
 
-      const canvas = document.createElement("canvas");
-      canvas.width = totalWidth * dpr;
-      canvas.height = stitchHeight * dpr;
-      const ctx = canvas.getContext("2d");
-      fillJpegBackdrop(ctx, canvas.width, canvas.height, out);
+      let canvas = null;
+      let ctx = null;
 
       for (const { dataURL, y } of captures) {
         const img = await loadImage(dataURL);
+
+        if (!canvas) {
+          canvas = document.createElement("canvas");
+          canvas.width = img.width;
+          canvas.height = stitchHeight * dpr;
+          ctx = canvas.getContext("2d");
+          fillJpegBackdrop(ctx, canvas.width, canvas.height, out);
+        }
+
         const remainder = totalHeight - y;
         const sliceHeight = Math.min(viewportHeight, remainder);
         const srcHeight = sliceHeight * dpr;
@@ -192,9 +198,13 @@
           srcHeight,
           0,
           y * dpr,
-          totalWidth * dpr,
+          img.width,
           sliceHeight * dpr,
         );
+      }
+
+      if (!canvas) {
+        throw new Error("No capture slices to stitch");
       }
 
       let blob;
