@@ -56,9 +56,17 @@ async function warmOpenTabs() {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   switch (msg.type) {
     case LassoMsg.CAPTURE:
-      handleCapture(msg.mode, msg.hideFixed).catch((err) => {
+      handleCapture(msg.mode, msg.hideFixed).catch(async (err) => {
         console.error("Lasso capture failed:", err);
-        showActionError(sender.tab?.id, "Can't capture this page");
+        let tabId = sender.tab?.id;
+        if (tabId == null) {
+          try {
+            tabId = (await getActiveTab()).id;
+          } catch {
+            // Fall back to the global badge when there is no active tab.
+          }
+        }
+        showActionError(tabId, "Can't capture this page");
       });
       break;
 
@@ -138,23 +146,40 @@ async function ensureInjected(tabId) {
 }
 
 const BADGE_CLEAR_MS = 4000;
-const badgeClearTimeouts = new Map();
+const BADGE_CLEAR_ALARM_PREFIX = "lasso-clear-action-error:";
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (!alarm.name.startsWith(BADGE_CLEAR_ALARM_PREFIX)) return;
+
+  const targetKey = alarm.name.slice(BADGE_CLEAR_ALARM_PREFIX.length);
+  const tabId = targetKey === "default" ? undefined : Number(targetKey);
+  if (tabId != null && Number.isNaN(tabId)) return;
+
+  clearActionError(tabId);
+});
+
+function getActionErrorTarget(tabId) {
+  return tabId != null ? { tabId } : {};
+}
+
+function getBadgeClearAlarmName(tabId) {
+  return `${BADGE_CLEAR_ALARM_PREFIX}${tabId ?? "default"}`;
+}
 
 function showActionError(tabId, message) {
-  const target = tabId != null ? { tabId } : {};
-  const targetKey = tabId ?? "default";
-  const previousTimeout = badgeClearTimeouts.get(targetKey);
-  if (previousTimeout) clearTimeout(previousTimeout);
-
+  const target = getActionErrorTarget(tabId);
   chrome.action.setBadgeBackgroundColor({ ...target, color: "#d93025" });
   chrome.action.setBadgeText({ ...target, text: "!" });
   chrome.action.setTitle({ ...target, title: `Lasso: ${message}` });
-  const timeoutId = setTimeout(() => {
-    chrome.action.setBadgeText({ ...target, text: "" });
-    chrome.action.setTitle({ ...target, title: "Lasso" });
-    badgeClearTimeouts.delete(targetKey);
-  }, BADGE_CLEAR_MS);
-  badgeClearTimeouts.set(targetKey, timeoutId);
+  chrome.alarms.create(getBadgeClearAlarmName(tabId), {
+    when: Date.now() + BADGE_CLEAR_MS,
+  });
+}
+
+function clearActionError(tabId) {
+  const target = getActionErrorTarget(tabId);
+  chrome.action.setBadgeText({ ...target, text: "" });
+  chrome.action.setTitle({ ...target, title: "Lasso" });
 }
 
 function sendToTab(tabId, message) {
