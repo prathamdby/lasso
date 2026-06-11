@@ -6,12 +6,15 @@
   let onCaptureComplete = () => {};
 
   const EXPORT_DEFAULTS = { format: "png", quality: 0.92 };
+  const MAX_CANVAS_DIM = 32767;
+  const MAX_CANVAS_AREA = 268435456; // 16384 * 16384, Chrome's safe canvas area
   const FORMAT_MIME = {
     png: "image/png",
     jpeg: "image/jpeg",
     webp: "image/webp",
   };
   const FORMAT_EXT = { png: "png", jpeg: "jpg", webp: "webp" };
+  let stitch = null;
 
   function init(deps) {
     isCaptureActive = deps.isCaptureActive;
@@ -123,15 +126,6 @@
     }
   }
 
-  function stitchHeightFromCaptures(captures, totalHeight, viewportHeight) {
-    if (!captures.length) return 0;
-    const lastY = captures[captures.length - 1].y;
-    return Math.min(
-      totalHeight,
-      lastY + Math.min(viewportHeight, totalHeight - lastY),
-    );
-  }
-
   function cropRectForStitch(exportRect, stitchHeight) {
     if (exportRect.y >= stitchHeight) {
       throw new Error("Crop region is below the captured page area");
@@ -147,89 +141,143 @@
     };
   }
 
-  async function stitchAndExport({
-    captures,
-    totalWidth,
+  async function beginStitch({
     totalHeight,
     viewportHeight,
-    devicePixelRatio: dpr,
+    devicePixelRatio,
     exportRect,
     skipCrop,
     action,
-    truncated,
   }) {
-    if (!isCaptureActive()) return;
+    if (!isCaptureActive()) throw new Error("Capture is no longer active");
     onCaptureComplete({ keepUi: true });
+    stitch = {
+      totalHeight,
+      viewportHeight,
+      dpr: devicePixelRatio,
+      exportRect,
+      skipCrop,
+      action,
+      out: outputFor(action, await getExportSettings()),
+      canvas: null,
+      ctx: null,
+      capped: false,
+      drawnBottom: 0,
+    };
+  }
+
+  async function addStitchSlice({ dataURL, y }) {
+    if (!stitch) throw new Error("No stitch in progress");
+    const img = await loadImage(dataURL);
+
+    if (!stitch.canvas) {
+      const width = img.width;
+      const fullHeight = Math.round(stitch.totalHeight * stitch.dpr);
+      const maxHeight = Math.min(
+        MAX_CANVAS_DIM,
+        Math.floor(MAX_CANVAS_AREA / width),
+      );
+      stitch.capped = fullHeight > maxHeight;
+      stitch.canvas = document.createElement("canvas");
+      stitch.canvas.width = width;
+      stitch.canvas.height = Math.min(fullHeight, maxHeight);
+      stitch.ctx = stitch.canvas.getContext("2d");
+      fillJpegBackdrop(
+        stitch.ctx,
+        stitch.canvas.width,
+        stitch.canvas.height,
+        stitch.out,
+      );
+    }
+
+    const destY = Math.round(y * stitch.dpr);
+    const remainder = stitch.totalHeight - y;
+    const sliceHeight = Math.min(stitch.viewportHeight, remainder);
+    const srcHeight = Math.round(sliceHeight * stitch.dpr);
+
+    stitch.ctx.drawImage(
+      img,
+      0,
+      0,
+      img.width,
+      srcHeight,
+      0,
+      destY,
+      img.width,
+      srcHeight,
+    );
+
+    stitch.drawnBottom = Math.min(
+      stitch.canvas.height,
+      Math.max(stitch.drawnBottom, destY + srcHeight),
+    );
+
+    return { full: destY + srcHeight >= stitch.canvas.height };
+  }
+
+  async function finalizeStitch({ truncated }) {
+    if (!stitch) throw new Error("No stitch in progress");
+    const session = stitch;
+    stitch = null;
 
     try {
-      const out = outputFor(action, await getExportSettings());
-      const stitchHeight = stitchHeightFromCaptures(
-        captures,
-        totalHeight,
-        viewportHeight,
-      );
-      if (stitchHeight <= 0) {
+      if (!session.canvas || session.drawnBottom <= 0) {
         throw new Error("No capture slices to stitch");
       }
 
-      let canvas = null;
-      let ctx = null;
-
-      for (const { dataURL, y } of captures) {
-        const img = await loadImage(dataURL);
-
-        if (!canvas) {
-          canvas = document.createElement("canvas");
-          canvas.width = img.width;
-          canvas.height = stitchHeight * dpr;
-          ctx = canvas.getContext("2d");
-          fillJpegBackdrop(ctx, canvas.width, canvas.height, out);
-        }
-
-        const remainder = totalHeight - y;
-        const sliceHeight = Math.min(viewportHeight, remainder);
-        const srcHeight = sliceHeight * dpr;
-
-        ctx.drawImage(
-          img,
-          0,
-          0,
-          img.width,
-          srcHeight,
-          0,
-          y * dpr,
-          img.width,
-          sliceHeight * dpr,
-        );
-      }
-
-      if (!canvas) {
-        throw new Error("No capture slices to stitch");
-      }
-
+      const stitchHeightCss = session.drawnBottom / session.dpr;
       let blob;
-      if (exportRect && !skipCrop) {
+      if (session.exportRect && !session.skipCrop) {
         blob = await cropFromCanvas(
-          canvas,
-          cropRectForStitch(exportRect, stitchHeight),
-          dpr,
-          out,
+          session.canvas,
+          cropRectForStitch(session.exportRect, stitchHeightCss),
+          session.dpr,
+          session.out,
+        );
+      } else if (session.drawnBottom < session.canvas.height) {
+        blob = await cropFromCanvas(
+          session.canvas,
+          {
+            x: 0,
+            y: 0,
+            width: session.canvas.width / session.dpr,
+            height: stitchHeightCss,
+          },
+          session.dpr,
+          session.out,
         );
       } else {
         blob = await new Promise((resolve) =>
-          canvas.toBlob(resolve, out.mime, out.quality),
+          session.canvas.toBlob(resolve, session.out.mime, session.out.quality),
         );
       }
 
-      await exportBlob(blob, action, out);
-      onCaptureComplete({ finalize: true, truncated: !!truncated });
+      if (!blob) throw new Error("Could not encode the stitched image");
+
+      await exportBlob(blob, session.action, session.out);
+      onCaptureComplete({
+        finalize: true,
+        truncated: !!truncated || session.capped,
+      });
     } catch (err) {
       onCaptureComplete({
         finalize: true,
         error: err?.message || "Capture failed",
       });
+      throw err;
     }
   }
 
-  window.LassoCapture = { init, handleCropResult, stitchAndExport };
+  function abandonStitch() {
+    stitch = null;
+  }
+
+  window.LassoCapture = {
+    init,
+    handleCropResult,
+    beginStitch,
+    addStitchSlice,
+    finalizeStitch,
+    abandonStitch,
+  };
 })();

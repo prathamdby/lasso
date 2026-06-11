@@ -148,12 +148,24 @@
           });
         return true;
 
-      case LassoMsg.STITCH:
-        window.LassoCapture.stitchAndExport(msg)
+      case LassoMsg.STITCH_BEGIN:
+        window.LassoCapture.beginStitch(msg)
+          .then(() => sendResponse({ ok: true }))
+          .catch((err) => sendResponse({ ok: false, error: err?.message }));
+        return true;
+
+      case LassoMsg.STITCH_SLICE:
+        window.LassoCapture.addStitchSlice(msg)
+          .then((result) => sendResponse({ ok: true, full: !!result.full }))
+          .catch((err) => sendResponse({ ok: false, error: err?.message }));
+        return true;
+
+      case LassoMsg.STITCH_FINALIZE:
+        window.LassoCapture.finalizeStitch(msg)
           .then(() => sendResponse({ ok: true }))
           .catch((err) => {
             console.error("Lasso stitch failed:", err);
-            sendResponse({ ok: false });
+            sendResponse({ ok: false, error: err?.message });
           });
         return true;
 
@@ -175,11 +187,13 @@
         break;
 
       case LassoMsg.CAPTURE_CANCELLED:
+        window.LassoCapture.abandonStitch();
         window.LassoSelection.onCaptureCancelled();
         sendResponse({ ok: true });
         break;
 
       case LassoMsg.CAPTURE_FAILED:
+        window.LassoCapture.abandonStitch();
         window.LassoSelection.onCaptureFailed(msg.message);
         sendResponse({ ok: true });
         break;
