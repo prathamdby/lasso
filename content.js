@@ -167,6 +167,13 @@
         sendResponse({ ok: true });
         break;
 
+      case LassoMsg.REVOKE_BLOB_URL:
+        if (typeof msg.url === "string" && msg.url.startsWith("blob:")) {
+          URL.revokeObjectURL(msg.url);
+        }
+        sendResponse({ ok: true });
+        break;
+
       case LassoMsg.CAPTURE_CANCELLED:
         window.LassoSelection.onCaptureCancelled();
         sendResponse({ ok: true });

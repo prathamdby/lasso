@@ -14,6 +14,7 @@ const CONTENT_SCRIPT_FILES = [
 
 const activeCaptures = new Map();
 const previewDebounce = new Map();
+const pendingBlobRevokes = new Map();
 const PREVIEW_DEBOUNCE_MS = 400;
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -64,8 +65,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           filename: msg.filename || "screenshot.png",
           saveAs: false,
         },
-        () => {
-          if (msg.revoke) URL.revokeObjectURL(msg.url);
+        (downloadId) => {
+          if (!msg.revoke) return;
+          if (downloadId == null || sender.tab?.id == null) return;
+          pendingBlobRevokes.set(downloadId, {
+            tabId: sender.tab.id,
+            url: msg.url,
+          });
         },
       );
       break;
@@ -93,6 +99,22 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   return false;
+});
+
+chrome.downloads.onChanged.addListener((delta) => {
+  const state = delta.state?.current;
+  if (state !== "complete" && state !== "interrupted") return;
+
+  const pending = pendingBlobRevokes.get(delta.id);
+  if (!pending) return;
+  pendingBlobRevokes.delete(delta.id);
+
+  sendToTab(pending.tabId, {
+    type: LassoMsg.REVOKE_BLOB_URL,
+    url: pending.url,
+  }).catch(() => {
+    // tab gone; navigation already released the blob
+  });
 });
 
 function isCancelled(tabId) {
