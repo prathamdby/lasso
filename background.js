@@ -5,6 +5,7 @@ const WARM_TAB_CONCURRENCY = 5;
 const CAPTURE_MIN_INTERVAL_MS = 600;
 const CAPTURE_QUOTA_RETRIES = 2;
 let lastCaptureAt = 0;
+let captureThrottleQueue = Promise.resolve();
 
 const CONTENT_SCRIPT_FILES = [
   "messages.js",
@@ -31,9 +32,7 @@ function isCaptureQuotaError(err) {
 
 async function captureVisibleTabThrottled(windowId) {
   for (let attempt = 0; ; attempt += 1) {
-    const wait = lastCaptureAt + CAPTURE_MIN_INTERVAL_MS - Date.now();
-    if (wait > 0) await sleep(wait);
-    lastCaptureAt = Date.now();
+    await waitForCaptureThrottle();
 
     try {
       return await chrome.tabs.captureVisibleTab(windowId, { format: "png" });
@@ -43,6 +42,23 @@ async function captureVisibleTabThrottled(windowId) {
       }
       await sleep(CAPTURE_MIN_INTERVAL_MS);
     }
+  }
+}
+
+async function waitForCaptureThrottle() {
+  const previous = captureThrottleQueue;
+  let release;
+  captureThrottleQueue = new Promise((resolve) => {
+    release = resolve;
+  });
+
+  await previous;
+  try {
+    const wait = lastCaptureAt + CAPTURE_MIN_INTERVAL_MS - Date.now();
+    if (wait > 0) await sleep(wait);
+    lastCaptureAt = Date.now();
+  } finally {
+    release();
   }
 }
 
