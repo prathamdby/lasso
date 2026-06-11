@@ -26,14 +26,20 @@ chrome.runtime.onStartup.addListener(() => {
 
 chrome.commands.onCommand.addListener((command) => {
   if (command !== "open-preview") return;
-  handlePreview(false).catch(async (err) => {
-    console.error("Lasso preview failed:", err);
-    const tabId = (
-      await chrome.tabs.query({ active: true, currentWindow: true })
-    )[0]?.id;
-    showActionError(tabId, "Can't capture this page");
-  });
+  handleCommandPreview();
 });
+
+async function handleCommandPreview() {
+  let tabId;
+  try {
+    const tab = await getActiveTab();
+    tabId = tab.id;
+    await handlePreview(false, tabId);
+  } catch (err) {
+    console.error("Lasso preview failed:", err);
+    showActionError(tabId, "Can't capture this page");
+  }
+}
 
 async function warmOpenTabs() {
   const tabs = await chrome.tabs.query({ url: ["http://*/*", "https://*/*"] });
