@@ -2,6 +2,9 @@ importScripts("messages.js");
 
 const FULLPAGE_SLICE_LIMIT = 500;
 const WARM_TAB_CONCURRENCY = 5;
+const CAPTURE_MIN_INTERVAL_MS = 600;
+const CAPTURE_QUOTA_RETRIES = 2;
+let lastCaptureAt = 0;
 
 const CONTENT_SCRIPT_FILES = [
   "messages.js",
@@ -15,6 +18,33 @@ const CONTENT_SCRIPT_FILES = [
 const activeCaptures = new Map();
 const previewDebounce = new Map();
 const PREVIEW_DEBOUNCE_MS = 400;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isCaptureQuotaError(err) {
+  return /MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND|quota/i.test(
+    err?.message || "",
+  );
+}
+
+async function captureVisibleTabThrottled(windowId) {
+  for (let attempt = 0; ; attempt += 1) {
+    const wait = lastCaptureAt + CAPTURE_MIN_INTERVAL_MS - Date.now();
+    if (wait > 0) await sleep(wait);
+    lastCaptureAt = Date.now();
+
+    try {
+      return await chrome.tabs.captureVisibleTab(windowId, { format: "png" });
+    } catch (err) {
+      if (!isCaptureQuotaError(err) || attempt >= CAPTURE_QUOTA_RETRIES) {
+        throw err;
+      }
+      await sleep(CAPTURE_MIN_INTERVAL_MS);
+    }
+  }
+}
 
 chrome.runtime.onInstalled.addListener(() => {
   warmOpenTabs().catch(() => {});
@@ -270,9 +300,7 @@ async function handleSelectionCapture(tabId, mode, hideFixed, action) {
 
       await prepareTabForCapture(tabId);
 
-      const dataURL = await chrome.tabs.captureVisibleTab(tab.windowId, {
-        format: "png",
-      });
+      const dataURL = await captureVisibleTabThrottled(tab.windowId);
 
       if (await bailIfCancelled(tabId, tab, hideFixed, originalScrollY)) return;
 
@@ -329,9 +357,7 @@ async function captureFullPage(
 
     if (await bailIfCancelled(tab.id, tab, hideFixed, originalScrollY)) return;
 
-    const dataURL = await chrome.tabs.captureVisibleTab(tab.windowId, {
-      format: "png",
-    });
+    const dataURL = await captureVisibleTabThrottled(tab.windowId);
     captures.push({ dataURL, y: captureY });
     y += viewportHeight;
 
