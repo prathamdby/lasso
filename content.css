@@ -193,6 +193,35 @@ html.lasso-active * {
   background: #2f7ef0;
 }
 
+.lasso-padding-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px;
+  color: #f3f5f8;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: auto;
+}
+
+#lasso-padding-input {
+  width: 44px;
+  padding: 5px 6px;
+  background: #0d1018;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 7px;
+  color: #f3f5f8;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+}
+
+#lasso-padding-input:focus {
+  outline: 2px solid #3b8cff;
+  outline-offset: 1px;
+}
+
 #lasso-toolbar svg {
   width: 15px;
   height: 15px;

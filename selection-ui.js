@@ -30,6 +30,8 @@
     captureInProgress: false,
     captureScrollY: 0,
     userResized: false,
+    padding: 0,
+    baseRect: null,
     hoverTarget: null,
     pickedItems: [],
     pickedEls: new Set(),
@@ -104,6 +106,22 @@
     }
 
     return params;
+  }
+
+  function applyPaddingToRect(rect) {
+    if (!sel.padding || sel.padding <= 0 || !rect) return rect;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const x1 = Math.max(0, rect.x - sel.padding);
+    const y1 = Math.max(0, rect.y - sel.padding);
+    const x2 = Math.min(vw, rect.x + rect.width + sel.padding);
+    const y2 = Math.min(vh, rect.y + rect.height + sel.padding);
+    return {
+      x: x1,
+      y: y1,
+      width: Math.max(MIN_SELECTION_SIZE, x2 - x1),
+      height: Math.max(MIN_SELECTION_SIZE, y2 - y1),
+    };
   }
 
   function bindHoverListeners() {
@@ -318,6 +336,8 @@
     sel.mode = mode;
     sel.preview = false;
     sel.phase = "locked";
+    sel.padding = 0;
+    updatePaddingInput();
     unbindHoverListeners();
     hintEl()?.remove();
     sel.dom.hint = null;
@@ -377,8 +397,17 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
         Download
       </button>
+      <span class="lasso-toolbar-divider lasso-padding-divider" aria-hidden="true" style="display:none"></span>
+      <label class="lasso-padding-control" style="display:none">
+        <span>Padding</span>
+        <input type="number" id="lasso-padding-input" min="0" max="100" value="0" aria-label="Padding in pixels">
+      </label>
     `;
     toolbarNode.addEventListener("click", onToolbarClick);
+    const paddingInput = toolbarNode.querySelector("#lasso-padding-input");
+    if (paddingInput) {
+      paddingInput.addEventListener("input", onPaddingChange);
+    }
     selectionNode.appendChild(toolbarNode);
 
     sel.dom = {
@@ -579,8 +608,8 @@
       rects.push(
         documentRectToViewport(sel.pickManualDocRect, scrollX, scrollY),
       );
-    } else if (!sel.pickedItems.length && sel.rect) {
-      rects.push(sel.rect);
+    } else if (!sel.pickedItems.length && sel.baseRect) {
+      rects.push(sel.baseRect);
     }
     if (extraEl) rects.push(rectFromElement(extraEl));
     return rects;
@@ -592,7 +621,7 @@
       if (sel.rect) renderSelection(sel.rect, "locked");
       return;
     }
-    renderSelection(normalizeRect(viewUnion), "locked");
+    renderSelection(applyPaddingToRect(normalizeRect(viewUnion)), "locked");
   }
 
   function pickUnionViewportRect(
@@ -614,7 +643,8 @@
     if (!viewUnion) return;
 
     sel.pickPreviewEl = null;
-    sel.rect = normalizeRect(viewUnion);
+    sel.baseRect = normalizeRect(viewUnion);
+    sel.rect = applyPaddingToRect(sel.baseRect);
     renderSelection(sel.rect, "locked");
   }
 
@@ -878,7 +908,7 @@
     }
 
     setOverlayDim(false);
-    renderSelection(rectFromElement(el), "hover");
+    renderSelection(applyPaddingToRect(rectFromElement(el)), "hover");
   }
 
   async function onHoverClick(e) {
@@ -919,7 +949,8 @@
       : rectToDocument(normalizeRect(rect));
     sel.pickManualDocRect = null;
     sel.pickPreviewEl = null;
-    sel.rect = normalizeRect(rect);
+    sel.baseRect = normalizeRect(rect);
+    sel.rect = applyPaddingToRect(sel.baseRect);
     sel.draw = { pending: null, active: false, suppressClick: false };
     removePreviewScreen();
     hintEl()?.remove();
@@ -932,6 +963,7 @@
 
     if (sel.mode !== "pick") unbindHoverListeners();
     renderSelection(sel.rect, "locked");
+    updatePaddingControlVisibility();
   }
 
   function normalizeRect(rect) {
@@ -993,6 +1025,38 @@
     });
   }
 
+  function updatePaddingControlVisibility() {
+    const show = sel.mode === "pick";
+    const control = document.querySelector(".lasso-padding-control");
+    const divider = document.querySelector(".lasso-padding-divider");
+    if (control) control.style.display = show ? "flex" : "none";
+    if (divider) divider.style.display = show ? "block" : "none";
+  }
+
+  function updatePaddingInput() {
+    const input = document.getElementById("lasso-padding-input");
+    if (input) input.value = String(sel.padding);
+  }
+
+  function onPaddingChange(e) {
+    const raw = e.target.value;
+    if (raw === "") return;
+
+    const value = Number(raw);
+    if (!Number.isFinite(value)) return;
+
+    const clamped = Math.min(100, Math.max(0, Math.round(value)));
+    sel.padding = clamped;
+    if (clamped !== value) {
+      e.target.value = String(clamped);
+    }
+
+    if (sel.baseRect) {
+      sel.rect = applyPaddingToRect(sel.baseRect);
+      renderSelection(sel.rect, "locked");
+    }
+  }
+
   function positionToolbar(rect) {
     if (sel.mode === "visible" || sel.mode === "fullpage") {
       sel.dom.toolbar.classList.add("lasso-toolbar-fixed");
@@ -1018,6 +1082,8 @@
     sel.pickAnchorDocRect = null;
     sel.pickManualDocRect = null;
     sel.userResized = true;
+    sel.padding = 0;
+    updatePaddingInput();
 
     const startX = e.clientX;
     const startY = e.clientY;
@@ -1044,6 +1110,7 @@
     }
 
     function onUp() {
+      sel.baseRect = { ...sel.rect };
       selectionEl().classList.remove("lasso-resizing");
       document.removeEventListener("mousemove", onMove, true);
       document.removeEventListener("mouseup", onUp, true);
@@ -1129,6 +1196,8 @@
     sel.captureInProgress = false;
     sel.captureScrollY = 0;
     sel.userResized = false;
+    sel.padding = 0;
+    sel.baseRect = null;
     sel.hoverTarget = null;
     clearPickedItems();
     sel.pickAnchorDocRect = null;
