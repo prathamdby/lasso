@@ -110,12 +110,18 @@
 
   function applyPaddingToRect(rect) {
     if (!sel.padding || sel.padding <= 0 || !rect) return rect;
-    return normalizeRect({
-      x: rect.x - sel.padding,
-      y: rect.y - sel.padding,
-      width: rect.width + sel.padding * 2,
-      height: rect.height + sel.padding * 2,
-    });
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const x1 = Math.max(0, rect.x - sel.padding);
+    const y1 = Math.max(0, rect.y - sel.padding);
+    const x2 = Math.min(vw, rect.x + rect.width + sel.padding);
+    const y2 = Math.min(vh, rect.y + rect.height + sel.padding);
+    return {
+      x: x1,
+      y: y1,
+      width: Math.max(MIN_SELECTION_SIZE, x2 - x1),
+      height: Math.max(MIN_SELECTION_SIZE, y2 - y1),
+    };
   }
 
   function bindHoverListeners() {
@@ -400,7 +406,6 @@
     toolbarNode.addEventListener("click", onToolbarClick);
     const paddingInput = toolbarNode.querySelector("#lasso-padding-input");
     if (paddingInput) {
-      paddingInput.addEventListener("change", onPaddingChange);
       paddingInput.addEventListener("input", onPaddingChange);
     }
     selectionNode.appendChild(toolbarNode);
@@ -603,8 +608,8 @@
       rects.push(
         documentRectToViewport(sel.pickManualDocRect, scrollX, scrollY),
       );
-    } else if (!sel.pickedItems.length && (sel.baseRect || sel.rect)) {
-      rects.push(sel.baseRect || sel.rect);
+    } else if (!sel.pickedItems.length && sel.baseRect) {
+      rects.push(sel.baseRect);
     }
     if (extraEl) rects.push(rectFromElement(extraEl));
     return rects;
@@ -1022,9 +1027,9 @@
 
   function updatePaddingControlVisibility() {
     const show = sel.mode === "pick";
-    const input = document.getElementById("lasso-padding-input")?.parentElement;
+    const control = document.querySelector(".lasso-padding-control");
     const divider = document.querySelector(".lasso-padding-divider");
-    if (input) input.style.display = show ? "flex" : "none";
+    if (control) control.style.display = show ? "flex" : "none";
     if (divider) divider.style.display = show ? "block" : "none";
   }
 
@@ -1034,11 +1039,18 @@
   }
 
   function onPaddingChange(e) {
-    let value = Number(e.target.value);
+    const raw = e.target.value;
+    if (raw === "") return;
+
+    const value = Number(raw);
     if (!Number.isFinite(value)) return;
-    value = Math.min(100, Math.max(0, Math.round(value)));
-    sel.padding = value;
-    e.target.value = String(value);
+
+    const clamped = Math.min(100, Math.max(0, Math.round(value)));
+    sel.padding = clamped;
+    if (clamped !== value) {
+      e.target.value = String(clamped);
+    }
+
     if (sel.baseRect) {
       sel.rect = applyPaddingToRect(sel.baseRect);
       renderSelection(sel.rect, "locked");
