@@ -9,6 +9,7 @@ let captureThrottleQueue = Promise.resolve();
 
 const CONTENT_SCRIPT_FILES = [
   "messages.js",
+  "geometry.js",
   "fixed-elements.js",
   "capture-pipeline.js",
   "selection-ui.js",
@@ -103,7 +104,7 @@ async function warmOpenTabs() {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   switch (msg.type) {
     case LassoMsg.CAPTURE:
-      handleCapture(msg.mode, msg.hideFixed).catch(async (err) => {
+      handleCapture(msg.mode).catch(async (err) => {
         console.error("Lasso capture failed:", err);
         let tabId = sender.tab?.id;
         if (tabId == null) {
@@ -118,7 +119,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       break;
 
     case LassoMsg.OPEN_PREVIEW:
-      handlePreview(msg.hideFixed, sender.tab?.id).catch((err) => {
+      handlePreview(sender.tab?.id).catch((err) => {
         console.error("Lasso preview failed:", err);
         showActionError(sender.tab?.id, "Can't capture this page");
       });
@@ -165,12 +166,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
     case LassoMsg.SELECTION_CAPTURE:
       if (sender.tab) {
-        handleSelectionCapture(
-          sender.tab.id,
-          msg.mode,
-          msg.hideFixed,
-          msg.action,
-        ).catch((err) => console.error("Lasso selection capture failed:", err));
+        handleSelectionCapture(sender.tab.id, msg.mode, msg.action).catch(
+          (err) => console.error("Lasso selection capture failed:", err),
+        );
       }
       break;
 
@@ -285,17 +283,16 @@ async function scrollTabTo(tabId, y) {
   return response;
 }
 
-async function handleCapture(mode, hideFixed) {
+async function handleCapture(mode) {
   const tab = await getActiveTab();
   await ensureInjected(tab.id);
   await sendToTab(tab.id, {
     type: LassoMsg.START_SELECTION,
     mode,
-    hideFixed,
   });
 }
 
-async function handlePreview(hideFixed, preferredTabId) {
+async function handlePreview(preferredTabId) {
   const tab = preferredTabId
     ? await chrome.tabs.get(preferredTabId)
     : await getActiveTab();
@@ -307,28 +304,31 @@ async function handlePreview(hideFixed, preferredTabId) {
   previewDebounce.set(tab.id, now);
 
   await ensureInjected(tab.id);
-  await sendToTab(tab.id, {
-    type: LassoMsg.START_PREVIEW,
-    hideFixed: !!hideFixed,
-  });
+  await sendToTab(tab.id, { type: LassoMsg.START_PREVIEW });
 }
 
-async function abortCapture(tabId, tab, hideFixed, scrollY) {
-  if (scrollY != null) {
-    try {
-      await sendToTab(tabId, { type: LassoMsg.SCROLL_TO, y: scrollY });
-    } catch {
-      // tab may be gone
-    }
+// Releasing is idempotent and a no-op when nothing was pinned, so every exit
+// path can call it unconditionally.
+async function releaseFixedElements(tabId) {
+  try {
+    await sendToTab(tabId, { type: LassoMsg.RELEASE_FIXED_ELEMENTS });
+  } catch {
+    // tab may be gone
   }
+}
 
-  if (hideFixed) {
-    try {
-      await sendToTab(tabId, { type: LassoMsg.RESTORE_FIXED_ELEMENTS });
-    } catch {
-      // tab may be gone
-    }
+async function restoreScroll(tabId, scrollY) {
+  if (scrollY == null) return;
+  try {
+    await sendToTab(tabId, { type: LassoMsg.SCROLL_TO, y: scrollY });
+  } catch {
+    // tab may be gone
   }
+}
+
+async function abortCapture(tabId, scrollY) {
+  await restoreScroll(tabId, scrollY);
+  await releaseFixedElements(tabId);
 
   try {
     await sendToTab(tabId, { type: LassoMsg.CAPTURE_CANCELLED });
@@ -337,22 +337,9 @@ async function abortCapture(tabId, tab, hideFixed, scrollY) {
   }
 }
 
-async function failCapture(tabId, hideFixed, scrollY, message) {
-  if (scrollY != null) {
-    try {
-      await sendToTab(tabId, { type: LassoMsg.SCROLL_TO, y: scrollY });
-    } catch {
-      // tab may be gone
-    }
-  }
-
-  if (hideFixed) {
-    try {
-      await sendToTab(tabId, { type: LassoMsg.RESTORE_FIXED_ELEMENTS });
-    } catch {
-      // tab may be gone
-    }
-  }
+async function failCapture(tabId, scrollY, message) {
+  await restoreScroll(tabId, scrollY);
+  await releaseFixedElements(tabId);
 
   try {
     await sendToTab(tabId, {
@@ -364,9 +351,9 @@ async function failCapture(tabId, hideFixed, scrollY, message) {
   }
 }
 
-async function bailIfCancelled(tabId, tab, hideFixed, scrollY) {
+async function bailIfCancelled(tabId, scrollY) {
   if (!isCancelled(tabId)) return false;
-  await abortCapture(tabId, tab, hideFixed, scrollY);
+  await abortCapture(tabId, scrollY);
   return true;
 }
 
@@ -379,35 +366,29 @@ async function runCapture(tabId, fn) {
   }
 }
 
-async function handleSelectionCapture(tabId, mode, hideFixed, action) {
+async function handleSelectionCapture(tabId, mode, action) {
   await runCapture(tabId, async () => {
     const tab = await chrome.tabs.get(tabId);
     let originalScrollY = null;
-    let fixedHidden = false;
 
     try {
       const params = await sendToTab(tabId, {
         type: LassoMsg.GET_CAPTURE_PARAMS,
       });
 
-      if (await bailIfCancelled(tabId, tab, hideFixed, originalScrollY)) return;
+      if (await bailIfCancelled(tabId, originalScrollY)) return;
 
       if (!params?.rect?.width || !params?.rect?.height) {
         throw new Error("Selection lost before capture");
       }
 
-      if (hideFixed) {
-        await sendToTab(tabId, { type: LassoMsg.HIDE_FIXED_ELEMENTS });
-        fixedHidden = true;
-      }
-
-      if (await bailIfCancelled(tabId, tab, hideFixed, originalScrollY)) return;
-
+      // Only full page scrolls, so only full page repeats fixed elements across
+      // slices. Every other mode captures what is already on screen.
       if (mode === "fullpage") {
         originalScrollY = (
           await sendToTab(tabId, { type: LassoMsg.GET_PAGE_DIMENSIONS })
         ).scrollY;
-        await captureFullPage(tab, hideFixed, params, action, originalScrollY);
+        await captureFullPage(tab, params, action, originalScrollY);
         return;
       }
 
@@ -415,7 +396,7 @@ async function handleSelectionCapture(tabId, mode, hideFixed, action) {
 
       const dataURL = await captureVisibleTabThrottled(tab.windowId);
 
-      if (await bailIfCancelled(tabId, tab, hideFixed, originalScrollY)) return;
+      if (await bailIfCancelled(tabId, originalScrollY)) return;
 
       await sendToTab(tabId, {
         type: LassoMsg.CROP,
@@ -428,32 +409,19 @@ async function handleSelectionCapture(tabId, mode, hideFixed, action) {
       console.error("Lasso selection capture failed:", err);
       await failCapture(
         tabId,
-        fixedHidden,
         originalScrollY,
         err?.message || "Capture failed",
       );
     } finally {
-      if (fixedHidden) {
-        try {
-          await sendToTab(tabId, { type: LassoMsg.RESTORE_FIXED_ELEMENTS });
-        } catch {
-          // tab may be gone
-        }
-      }
+      await releaseFixedElements(tabId);
     }
   });
 }
 
-async function captureFullPage(
-  tab,
-  hideFixed,
-  params,
-  action,
-  originalScrollY,
-) {
+async function captureFullPage(tab, params, action, originalScrollY) {
   await prepareTabForCapture(tab.id);
 
-  if (await bailIfCancelled(tab.id, tab, hideFixed, originalScrollY)) return;
+  if (await bailIfCancelled(tab.id, originalScrollY)) return;
 
   const dims = await sendToTab(tab.id, { type: LassoMsg.GET_PAGE_DIMENSIONS });
   const { totalHeight, viewportHeight, devicePixelRatio } = dims;
@@ -471,35 +439,57 @@ async function captureFullPage(
 
   let y = 0;
   let slices = 0;
+  let pageHeight = totalHeight;
   let truncated = false;
 
-  while (y < totalHeight) {
-    if (await bailIfCancelled(tab.id, tab, hideFixed, originalScrollY)) return;
+  while (y < pageHeight) {
+    if (await bailIfCancelled(tab.id, originalScrollY)) return;
 
     const scroll = await scrollTabTo(tab.id, y);
     const captureY = Number.isFinite(scroll.scrollY) ? scroll.scrollY : y;
 
-    if (await bailIfCancelled(tab.id, tab, hideFixed, originalScrollY)) return;
+    // Pin after every scroll, not just once. Plenty of navbars are static at the
+    // top and only turn fixed past a scroll threshold; a single sweep at y=0
+    // never sees them.
+    try {
+      await sendToTab(tab.id, { type: LassoMsg.PIN_FIXED_ELEMENTS });
+    } catch {
+      // tab may be gone; the bail check below reports it
+    }
+
+    if (await bailIfCancelled(tab.id, originalScrollY)) return;
 
     const dataURL = await captureVisibleTabThrottled(tab.windowId);
     const slice = await sendToTab(tab.id, {
       type: LassoMsg.STITCH_SLICE,
       dataURL,
       y: captureY,
+      pageHeight,
     });
     if (!slice?.ok) throw new Error(slice?.error || "Stitching failed");
 
     slices += 1;
     y += viewportHeight;
 
-    if (slice.full) break;
-    if (slices >= FULLPAGE_SLICE_LIMIT) {
-      truncated = y < totalHeight;
+    // Either the canvas filled or the slice budget ran out. Both stop the run,
+    // and both drop content if the page had further to go.
+    if (slice.full || slices >= FULLPAGE_SLICE_LIMIT) {
+      truncated = y < pageHeight;
       break;
+    }
+
+    // Lazy-loading pages grow as they scroll. Only ever grow the bound —
+    // shrinking it would end the run early, and trailing blank canvas is
+    // already cropped at finalize.
+    const next = await sendToTab(tab.id, {
+      type: LassoMsg.GET_PAGE_DIMENSIONS,
+    });
+    if (Number.isFinite(next?.totalHeight) && next.totalHeight > pageHeight) {
+      pageHeight = next.totalHeight;
     }
   }
 
-  if (await bailIfCancelled(tab.id, tab, hideFixed, originalScrollY)) return;
+  if (await bailIfCancelled(tab.id, originalScrollY)) return;
 
   await sendToTab(tab.id, { type: LassoMsg.SCROLL_TO, y: originalScrollY });
 

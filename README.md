@@ -50,7 +50,7 @@ In preview mode you can hover to pick an element, **Shift+click** to add more el
 | ------------- | ----------------- | ------------------------------------------------------------------------------------------ |
 | **Preview**   | `Ctrl+Shift+S`    | Dimmed overlay. Pick (Shift+click to add elements), freestyle draw, visible, or full page. |
 | **Visible**   | Popup → Visible   | Locks the current viewport. Resize, then copy or download.                                 |
-| **Full page** | Popup → Full page | Scrolls and stitches the page. Optional crop before export.                                |
+| **Full page** | Popup → Full page | Scrolls and stitches the page. Fixed navbars render once. Optional crop before export.     |
 | **Pick**      | Popup → Pick      | Hover elements, click to lock. Shift+click to add more into one bounding box.              |
 | **Freestyle** | Popup → Freestyle | Drag a custom box on the page.                                                             |
 
@@ -113,12 +113,23 @@ Project layout:
 | `background.js`                         | Capture orchestration and downloads.                          |
 | `content.js`                            | Content-script entry and message dispatch.                    |
 | `capture-pipeline.js`                   | Crop, stitch, and export.                                     |
-| `fixed-elements.js`                     | Hide and restore fixed/sticky elements.                       |
+| `geometry.js`                           | Pure capture geometry: canvas sizing, slices, crops, pinning. |
+| `fixed-elements.js`                     | Pin and release fixed/sticky elements during capture.         |
 | `selection-ui.js`                       | Overlay, selection, and toolbar UI.                           |
 | `content.css`                           | In-page capture chrome.                                       |
 | `hotkey.js`                             | `Ctrl+Shift+S` listener on each tab.                          |
 | `popup.html` / `popup.js` / `popup.css` | Toolbar popup.                                                |
 | `icons/`                                | Extension icons (`icon.svg` source, PNG sizes for the store). |
+| `test/`                                 | Unit tests for `geometry.js` (no dependencies).               |
+
+Run the unit tests with Node 18 or newer. There are no dependencies to install:
+
+```sh
+node --test test/*.test.js
+```
+
+They cover the pure geometry in `geometry.js`. The DOM and capture behavior around
+it is verified by loading the extension and capturing a real page.
 
 After code changes, reload the extension on `chrome://extensions`.
 

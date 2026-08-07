@@ -66,11 +66,9 @@ function writeFormat(format) {
 async function capture(mode) {
   await formatReady;
   await saveFormat(formatSelect.value);
-  const hideFixed = document.getElementById("hide-fixed").checked;
   chrome.runtime.sendMessage({
     type: LassoMsg.CAPTURE,
     mode,
-    hideFixed,
   });
   window.close();
 }
