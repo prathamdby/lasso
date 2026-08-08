@@ -98,4 +98,14 @@ html.lasso-active, html.lasso-active * { user-select: none !important; -webkit-u
 .lasso-preview-text { margin: 0; color: var(--lasso-chalk); font-size: 15px; line-height: 1.45; }
 .lasso-preview-cancel { border: 1px solid rgba(244,240,229,.18); color: var(--lasso-soft); }
 
-@media (prefers-reduced-motion: reduce) { * { transition-duration: .001ms !important; animation-duration: .001ms !important; } }
+@media (prefers-reduced-motion: reduce) {
+  html.lasso-active #lasso-overlay,
+  html.lasso-active #lasso-selection,
+  html.lasso-active #lasso-selection *,
+  html.lasso-active #lasso-toolbar,
+  html.lasso-active #lasso-preview-screen,
+  html.lasso-active #lasso-preview-screen * {
+    transition-duration: .001ms !important;
+    animation-duration: .001ms !important;
+  }
+}

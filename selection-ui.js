@@ -1048,7 +1048,11 @@
     const maxLeft = Math.max(0, window.innerWidth - rect.x - toolbarWidth);
     const left = Math.min(maxLeft, Math.max(0, (rect.width - toolbarWidth) / 2));
     const below = rect.y + rect.height + gap + toolbarHeight <= window.innerHeight;
-    const top = below ? rect.height + gap : -toolbarHeight - gap;
+    const preferredTop = below ? rect.height + gap : -toolbarHeight - gap;
+    const top = Math.max(
+      -rect.y,
+      Math.min(preferredTop, window.innerHeight - rect.y - toolbarHeight),
+    );
     sel.dom.toolbar.style.left = left + "px";
     sel.dom.toolbar.style.top = top + "px";
   }
