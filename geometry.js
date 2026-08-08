@@ -125,6 +125,87 @@
     return /\b(transform|filter|perspective)\b/.test(style.willChange || "");
   }
 
+  function resizeRect(start, dir, dx, dy, options = {}) {
+    const minSize = options.minSize || 1;
+    const centered = !!options.centered;
+    const preserveAspect = !!options.preserveAspect;
+    const bounds = options.bounds || {
+      width: Number.POSITIVE_INFINITY,
+      height: Number.POSITIVE_INFINITY,
+    };
+    const ratio = start.width / start.height;
+    const xDirection = dir.includes("w") ? -1 : dir.includes("e") ? 1 : 0;
+    const yDirection = dir.includes("n") ? -1 : dir.includes("s") ? 1 : 0;
+    const deltaScale = centered ? 2 : 1;
+    const anchorX = centered || !xDirection
+      ? start.x + start.width / 2
+      : xDirection > 0
+        ? start.x
+        : start.x + start.width;
+    const anchorY = centered || !yDirection
+      ? start.y + start.height / 2
+      : yDirection > 0
+        ? start.y
+        : start.y + start.height;
+
+    const maxWidth = centered || !xDirection
+      ? 2 * Math.min(anchorX, bounds.width - anchorX)
+      : xDirection > 0
+        ? bounds.width - anchorX
+        : anchorX;
+    const maxHeight = centered || !yDirection
+      ? 2 * Math.min(anchorY, bounds.height - anchorY)
+      : yDirection > 0
+        ? bounds.height - anchorY
+        : anchorY;
+
+    let width = start.width + xDirection * dx * deltaScale;
+    let height = start.height + yDirection * dy * deltaScale;
+
+    if (preserveAspect) {
+      const xScale = xDirection
+        ? 1 + (xDirection * dx * deltaScale) / start.width
+        : null;
+      const yScale = yDirection
+        ? 1 + (yDirection * dy * deltaScale) / start.height
+        : null;
+      let scale;
+      if (xScale != null && yScale != null) {
+        scale = Math.abs(xScale - 1) >= Math.abs(yScale - 1)
+          ? xScale
+          : yScale;
+      } else {
+        scale = xScale ?? yScale ?? 1;
+      }
+
+      const minScale = Math.max(minSize / start.width, minSize / start.height);
+      const maxScale = Math.min(maxWidth / start.width, maxHeight / start.height);
+      scale = Math.max(minScale, Math.min(scale, maxScale));
+      width = start.width * scale;
+      height = start.height * scale;
+    } else {
+      width = xDirection
+        ? Math.max(minSize, Math.min(width, maxWidth))
+        : start.width;
+      height = yDirection
+        ? Math.max(minSize, Math.min(height, maxHeight))
+        : start.height;
+    }
+
+    const x = centered || !xDirection
+      ? anchorX - width / 2
+      : xDirection > 0
+        ? anchorX
+        : anchorX - width;
+    const y = centered || !yDirection
+      ? anchorY - height / 2
+      : yDirection > 0
+        ? anchorY
+        : anchorY - height;
+
+    return { x, y, width, height };
+  }
+
   window.LassoGeometry = {
     stitchCanvasFor,
     sliceGeometry,
@@ -132,5 +213,6 @@
     absoluteOffsetFor,
     treatmentFor,
     establishesContainingBlock,
+    resizeRect,
   };
 })();
