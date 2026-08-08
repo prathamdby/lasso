@@ -7,15 +7,10 @@ const CAPTURE_QUOTA_RETRIES = 2;
 let lastCaptureAt = 0;
 let captureThrottleQueue = Promise.resolve();
 
-const CONTENT_SCRIPT_FILES = [
-  "messages.js",
-  "geometry.js",
-  "fixed-elements.js",
-  "capture-pipeline.js",
-  "selection-ui.js",
-  "content.js",
-  "hotkey.js",
-];
+// Derived from the manifest so the injection order cannot drift from the
+// declared one. geometry.js must load before its consumers, and a second
+// hand-maintained copy of this list is how that ordering silently breaks.
+const CONTENT_SCRIPTS = chrome.runtime.getManifest().content_scripts[0];
 
 const activeCaptures = new Map();
 const previewDebounce = new Map();
@@ -82,7 +77,7 @@ async function handleCommandPreview() {
   try {
     const tab = await getActiveTab();
     tabId = tab.id;
-    await handlePreview(false, tabId);
+    await handlePreview(tabId);
   } catch (err) {
     console.error("Lasso preview failed:", err);
     showActionError(tabId, "Can't capture this page");
@@ -213,7 +208,7 @@ async function ensureInjected(tabId) {
   try {
     await chrome.scripting.insertCSS({
       target: { tabId },
-      files: ["content.css"],
+      files: CONTENT_SCRIPTS.css,
     });
   } catch {
     // The manifest may have already injected the stylesheet.
@@ -222,7 +217,7 @@ async function ensureInjected(tabId) {
   try {
     await chrome.scripting.executeScript({
       target: { tabId },
-      files: CONTENT_SCRIPT_FILES,
+      files: CONTENT_SCRIPTS.js,
     });
   } catch {
     // The manifest may have already injected the content scripts.
@@ -440,7 +435,6 @@ async function captureFullPage(tab, params, action, originalScrollY) {
   let y = 0;
   let slices = 0;
   let pageHeight = totalHeight;
-  let truncated = false;
 
   while (y < pageHeight) {
     if (await bailIfCancelled(tab.id, originalScrollY)) return;
@@ -471,12 +465,9 @@ async function captureFullPage(tab, params, action, originalScrollY) {
     slices += 1;
     y += viewportHeight;
 
-    // Either the canvas filled or the slice budget ran out. Both stop the run,
-    // and both drop content if the page had further to go.
-    if (slice.full || slices >= FULLPAGE_SLICE_LIMIT) {
-      truncated = y < pageHeight;
-      break;
-    }
+    // Either the canvas filled or the slice budget ran out. Both stop the run;
+    // the content script reports whether content was lost.
+    if (slice.full || slices >= FULLPAGE_SLICE_LIMIT) break;
 
     // Lazy-loading pages grow as they scroll. Only ever grow the bound —
     // shrinking it would end the run early, and trailing blank canvas is
@@ -493,9 +484,6 @@ async function captureFullPage(tab, params, action, originalScrollY) {
 
   await sendToTab(tab.id, { type: LassoMsg.SCROLL_TO, y: originalScrollY });
 
-  const fin = await sendToTab(tab.id, {
-    type: LassoMsg.STITCH_FINALIZE,
-    truncated,
-  });
+  const fin = await sendToTab(tab.id, { type: LassoMsg.STITCH_FINALIZE });
   if (!fin?.ok) throw new Error(fin?.error || "Stitch export failed");
 }

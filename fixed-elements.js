@@ -63,14 +63,7 @@
   function containingBlockOf(el) {
     let parent = el.parentElement;
     while (parent) {
-      const style = getComputedStyle(parent);
-      if (
-        style.position !== "static" ||
-        style.transform !== "none" ||
-        style.filter !== "none" ||
-        style.perspective !== "none" ||
-        style.willChange.includes("transform")
-      ) {
+      if (LassoGeometry.establishesContainingBlock(getComputedStyle(parent))) {
         return parent;
       }
       parent = parent.parentElement;
@@ -86,6 +79,22 @@
       width: rect.width,
       height: rect.height,
     };
+  }
+
+  // getBoundingClientRect reports the transformed box. Pinning writes top/left
+  // as layout position, and the element's own transform then applies again on
+  // top of it. Measure with the transform suppressed so it applies exactly once
+  // and the element keeps its rendered position.
+  function layoutRectOf(el) {
+    const inline = el.style.getPropertyValue("transform");
+    const priority = el.style.getPropertyPriority("transform");
+    el.style.setProperty("transform", "none", "important");
+
+    const rect = documentRectOf(el);
+
+    el.style.removeProperty("transform");
+    if (inline) el.style.setProperty("transform", inline, priority);
+    return rect;
   }
 
   function rememberInlineStyles(el) {
@@ -105,7 +114,7 @@
   }
 
   function pin(el) {
-    const target = documentRectOf(el);
+    const target = layoutRectOf(el);
     const container = containingBlockOf(el);
     let containerRect = null;
     let containerBorder = null;

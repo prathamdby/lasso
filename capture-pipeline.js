@@ -144,7 +144,6 @@
       out: outputFor(action, await getExportSettings()),
       canvas: null,
       ctx: null,
-      capped: false,
       drawnBottom: 0,
     };
   }
@@ -160,16 +159,14 @@
 
     if (!stitch.canvas) {
       const width = img.width;
-      const { height, capped } = LassoGeometry.stitchCanvasFor(
+      stitch.canvas = document.createElement("canvas");
+      stitch.canvas.width = width;
+      stitch.canvas.height = LassoGeometry.stitchCanvasFor(
         stitch.totalHeight,
         stitch.viewportHeight,
         stitch.dpr,
         width,
       );
-      stitch.capped = capped;
-      stitch.canvas = document.createElement("canvas");
-      stitch.canvas.width = width;
-      stitch.canvas.height = height;
       stitch.ctx = stitch.canvas.getContext("2d");
       fillJpegBackdrop(
         stitch.ctx,
@@ -206,7 +203,7 @@
     return { full: destY + srcHeight >= stitch.canvas.height };
   }
 
-  async function finalizeStitch({ truncated }) {
+  async function finalizeStitch() {
     if (!stitch) throw new Error("No stitch in progress");
     const session = stitch;
     stitch = null;
@@ -246,9 +243,12 @@
       if (!blob) throw new Error("Could not encode the stitched image");
 
       await exportBlob(blob, session.action, session.out);
+      // The canvas cannot grow once allocated, so a page that outgrew it stops
+      // the run early. Compare what was drawn against the last known page
+      // height rather than the scroll target, which advances past the page end.
       onCaptureComplete({
         finalize: true,
-        truncated: !!truncated || session.capped,
+        truncated: stitchHeightCss < session.totalHeight - 1,
       });
     } catch (err) {
       onCaptureComplete({

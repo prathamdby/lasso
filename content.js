@@ -154,7 +154,7 @@
         return true;
 
       case LassoMsg.STITCH_FINALIZE:
-        window.LassoCapture.finalizeStitch(msg)
+        window.LassoCapture.finalizeStitch()
           .then(() => sendResponse({ ok: true }))
           .catch((err) => {
             console.error("Lasso stitch failed:", err);

@@ -32,9 +32,9 @@
   }
 
   // Sizes the stitch canvas from the first slice. Allocation covers the growth
-  // allowance so lazy-loaded content still lands, but `capped` reports against
-  // the measured height — padding the canvas must not make an intact page claim
-  // it was truncated.
+  // allowance so lazy-loaded content still lands. Truncation is reported at
+  // finalize by comparing what was drawn against the page height, so the canvas
+  // only has to say how tall it can be.
   function stitchCanvasFor(measuredHeight, viewportHeight, dpr, width) {
     const maxHeight = Math.min(
       MAX_CANVAS_DIM,
@@ -42,10 +42,7 @@
     );
     const planned = plannedCanvasHeight(measuredHeight, viewportHeight);
 
-    return {
-      height: Math.min(Math.round(planned * dpr), maxHeight),
-      capped: Math.round(measuredHeight * dpr) > maxHeight,
-    };
+    return Math.min(Math.round(planned * dpr), maxHeight);
   }
 
   function sliceGeometry(scrollY, viewportHeight, totalHeight, dpr) {
@@ -110,11 +107,30 @@
     return "pin";
   }
 
+  // Properties that make an ancestor the containing block of a fixed or
+  // absolutely positioned descendant. Pinning resolves offsets against this
+  // ancestor, so missing one puts the element at the wrong origin.
+  // `contain: content` and `strict` both imply layout and paint containment.
+  function establishesContainingBlock(style) {
+    if (!style) return false;
+    if (style.position && style.position !== "static") return true;
+    if (style.transform && style.transform !== "none") return true;
+    if (style.filter && style.filter !== "none") return true;
+    if (style.perspective && style.perspective !== "none") return true;
+    if (style.backdropFilter && style.backdropFilter !== "none") return true;
+    if (style.containerType && style.containerType !== "normal") return true;
+    if (/\b(layout|paint|strict|content)\b/.test(style.contain || "")) {
+      return true;
+    }
+    return /\b(transform|filter|perspective)\b/.test(style.willChange || "");
+  }
+
   window.LassoGeometry = {
     stitchCanvasFor,
     sliceGeometry,
     cropRectForStitch,
     absoluteOffsetFor,
     treatmentFor,
+    establishesContainingBlock,
   };
 })();
