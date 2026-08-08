@@ -24,7 +24,6 @@
     active: false,
     phase: "idle",
     mode: "idle",
-    hideFixed: false,
     preview: false,
     rect: null,
     captureInProgress: false,
@@ -218,12 +217,11 @@
     e.stopPropagation();
   }
 
-  function startCaptureUI({ mode, hideFixed, preview = false }) {
+  function startCaptureUI({ mode, preview = false }) {
     if (sel.active) cleanupSelection();
 
     sel.active = true;
     sel.mode = preview ? "pick" : mode;
-    sel.hideFixed = !!hideFixed;
     sel.preview = preview;
     sel.rect = null;
     sel.userResized = false;
@@ -1149,7 +1147,6 @@
     chrome.runtime.sendMessage({
       type: LassoMsg.SELECTION_CAPTURE,
       mode: sel.mode,
-      hideFixed: sel.hideFixed,
       action,
     });
   }
@@ -1159,7 +1156,7 @@
 
     sel.captureInProgress = false;
     chrome.runtime.sendMessage({ type: LassoMsg.CANCEL_CAPTURE });
-    window.LassoFixed.restoreFixedElements();
+    window.LassoFixed.releaseFixedElements();
     cleanupSelection();
   }
 
@@ -1190,7 +1187,6 @@
     sel.active = false;
     sel.phase = "idle";
     sel.mode = "idle";
-    sel.hideFixed = false;
     sel.preview = false;
     sel.rect = null;
     sel.captureInProgress = false;
@@ -1240,13 +1236,13 @@
 
   function onCaptureCancelled() {
     sel.captureInProgress = false;
-    window.LassoFixed.restoreFixedElements();
+    window.LassoFixed.releaseFixedElements();
     cleanupSelection();
   }
 
   function onCaptureFailed(message) {
     sel.captureInProgress = false;
-    window.LassoFixed.restoreFixedElements();
+    window.LassoFixed.releaseFixedElements();
     cleanupSelection();
     if (message) showNotice(message);
   }

@@ -36,6 +36,7 @@
       "css": ["content.css"],
       "js": [
         "messages.js",
+        "geometry.js",
         "fixed-elements.js",
         "capture-pipeline.js",
         "selection-ui.js",

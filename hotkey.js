@@ -13,10 +13,7 @@
       e.stopPropagation();
       e.stopImmediatePropagation();
 
-      chrome.runtime.sendMessage({
-        type: LassoMsg.OPEN_PREVIEW,
-        hideFixed: false,
-      });
+      chrome.runtime.sendMessage({ type: LassoMsg.OPEN_PREVIEW });
     },
     true,
   );

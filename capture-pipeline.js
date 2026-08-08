@@ -2,12 +2,17 @@
   if (window.__lassoPipelineLoaded) return;
   window.__lassoPipelineLoaded = true;
 
+  // Fails at injection with a precise message. Without it a misordered
+  // content_scripts list surfaces as a ReferenceError mid-capture, which the
+  // caller reports as a generic stitch failure.
+  if (!window.LassoGeometry) {
+    throw new Error("Lasso: geometry.js must load before capture-pipeline.js");
+  }
+
   let isCaptureActive = () => false;
   let onCaptureComplete = () => {};
 
   const EXPORT_DEFAULTS = { format: "png", quality: 0.92 };
-  const MAX_CANVAS_DIM = 32767;
-  const MAX_CANVAS_AREA = 268435456; // 16384 * 16384, Chrome's safe canvas area
   const FORMAT_MIME = {
     png: "image/png",
     jpeg: "image/jpeg",
@@ -126,21 +131,6 @@
     }
   }
 
-  function cropRectForStitch(exportRect, stitchHeight) {
-    if (exportRect.y >= stitchHeight) {
-      throw new Error("Crop region is below the captured page area");
-    }
-
-    if (exportRect.y + exportRect.height <= stitchHeight) {
-      return exportRect;
-    }
-
-    return {
-      ...exportRect,
-      height: stitchHeight - exportRect.y,
-    };
-  }
-
   async function beginStitch({
     totalHeight,
     viewportHeight,
@@ -161,26 +151,29 @@
       out: outputFor(action, await getExportSettings()),
       canvas: null,
       ctx: null,
-      capped: false,
       drawnBottom: 0,
     };
   }
 
-  async function addStitchSlice({ dataURL, y }) {
+  async function addStitchSlice({ dataURL, y, pageHeight }) {
     if (!stitch) throw new Error("No stitch in progress");
     const img = await loadImage(dataURL);
 
+    // Lazy-loading pages grow while the capture runs. Track the latest height so
+    // the final slice is trimmed against the page as it is now, not as it was
+    // when the loop started.
+    stitch.totalHeight = Math.max(stitch.totalHeight, pageHeight || 0);
+
     if (!stitch.canvas) {
       const width = img.width;
-      const fullHeight = Math.round(stitch.totalHeight * stitch.dpr);
-      const maxHeight = Math.min(
-        MAX_CANVAS_DIM,
-        Math.floor(MAX_CANVAS_AREA / width),
-      );
-      stitch.capped = fullHeight > maxHeight;
       stitch.canvas = document.createElement("canvas");
       stitch.canvas.width = width;
-      stitch.canvas.height = Math.min(fullHeight, maxHeight);
+      stitch.canvas.height = LassoGeometry.stitchCanvasFor(
+        stitch.totalHeight,
+        stitch.viewportHeight,
+        stitch.dpr,
+        width,
+      );
       stitch.ctx = stitch.canvas.getContext("2d");
       fillJpegBackdrop(
         stitch.ctx,
@@ -190,10 +183,12 @@
       );
     }
 
-    const destY = Math.round(y * stitch.dpr);
-    const remainder = stitch.totalHeight - y;
-    const sliceHeight = Math.min(stitch.viewportHeight, remainder);
-    const srcHeight = Math.round(sliceHeight * stitch.dpr);
+    const { destY, srcHeight } = LassoGeometry.sliceGeometry(
+      y,
+      stitch.viewportHeight,
+      stitch.totalHeight,
+      stitch.dpr,
+    );
 
     stitch.ctx.drawImage(
       img,
@@ -215,7 +210,7 @@
     return { full: destY + srcHeight >= stitch.canvas.height };
   }
 
-  async function finalizeStitch({ truncated }) {
+  async function finalizeStitch() {
     if (!stitch) throw new Error("No stitch in progress");
     const session = stitch;
     stitch = null;
@@ -230,7 +225,7 @@
       if (session.exportRect && !session.skipCrop) {
         blob = await cropFromCanvas(
           session.canvas,
-          cropRectForStitch(session.exportRect, stitchHeightCss),
+          LassoGeometry.cropRectForStitch(session.exportRect, stitchHeightCss),
           session.dpr,
           session.out,
         );
@@ -255,9 +250,12 @@
       if (!blob) throw new Error("Could not encode the stitched image");
 
       await exportBlob(blob, session.action, session.out);
+      // The canvas cannot grow once allocated, so a page that outgrew it stops
+      // the run early. Compare what was drawn against the last known page
+      // height rather than the scroll target, which advances past the page end.
       onCaptureComplete({
         finalize: true,
-        truncated: !!truncated || session.capped,
+        truncated: stitchHeightCss < session.totalHeight - 1,
       });
     } catch (err) {
       onCaptureComplete({

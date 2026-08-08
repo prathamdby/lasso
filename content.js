@@ -111,19 +111,12 @@
         return true;
 
       case LassoMsg.START_SELECTION:
-        window.LassoSelection.startCaptureUI({
-          mode: msg.mode,
-          hideFixed: msg.hideFixed,
-        });
+        window.LassoSelection.startCaptureUI({ mode: msg.mode });
         sendResponse({ ok: true });
         break;
 
       case LassoMsg.START_PREVIEW:
-        window.LassoSelection.startCaptureUI({
-          mode: "pick",
-          hideFixed: msg.hideFixed,
-          preview: true,
-        });
+        window.LassoSelection.startCaptureUI({ mode: "pick", preview: true });
         sendResponse({ ok: true });
         break;
 
@@ -161,7 +154,7 @@
         return true;
 
       case LassoMsg.STITCH_FINALIZE:
-        window.LassoCapture.finalizeStitch(msg)
+        window.LassoCapture.finalizeStitch()
           .then(() => sendResponse({ ok: true }))
           .catch((err) => {
             console.error("Lasso stitch failed:", err);
@@ -169,13 +162,13 @@
           });
         return true;
 
-      case LassoMsg.HIDE_FIXED_ELEMENTS:
-        window.LassoFixed.hideFixedElements();
+      case LassoMsg.PIN_FIXED_ELEMENTS:
+        window.LassoFixed.pinFixedElements();
         sendResponse({ ok: true });
         break;
 
-      case LassoMsg.RESTORE_FIXED_ELEMENTS:
-        window.LassoFixed.restoreFixedElements();
+      case LassoMsg.RELEASE_FIXED_ELEMENTS:
+        window.LassoFixed.releaseFixedElements();
         sendResponse({ ok: true });
         break;
 
