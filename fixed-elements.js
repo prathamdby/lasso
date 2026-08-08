@@ -2,6 +2,10 @@
   if (window.__lassoFixedLoaded) return;
   window.__lassoFixedLoaded = true;
 
+  if (!window.LassoGeometry) {
+    throw new Error("Lasso: geometry.js must load before fixed-elements.js");
+  }
+
   const LASSO_ROOT_SELECTOR =
     "#lasso-overlay, #lasso-selection, #lasso-hint, #lasso-preview-screen";
 

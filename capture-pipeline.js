@@ -2,6 +2,13 @@
   if (window.__lassoPipelineLoaded) return;
   window.__lassoPipelineLoaded = true;
 
+  // Fails at injection with a precise message. Without it a misordered
+  // content_scripts list surfaces as a ReferenceError mid-capture, which the
+  // caller reports as a generic stitch failure.
+  if (!window.LassoGeometry) {
+    throw new Error("Lasso: geometry.js must load before capture-pipeline.js");
+  }
+
   let isCaptureActive = () => false;
   let onCaptureComplete = () => {};
 
