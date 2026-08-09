@@ -245,6 +245,80 @@ test("establishesContainingBlock accepts a container-type ancestor", () => {
   );
 });
 
+test("resizeRect grows from the dragged corner by default", () => {
+  assert.deepEqual(
+    geo.resizeRect({ x: 100, y: 100, width: 200, height: 100 }, "se", 40, 20),
+    { x: 100, y: 100, width: 240, height: 120 },
+  );
+});
+
+test("resizeRect keeps the opposite corner fixed when dragging north-west", () => {
+  assert.deepEqual(
+    geo.resizeRect({ x: 100, y: 100, width: 200, height: 100 }, "nw", -20, -10),
+    { x: 80, y: 90, width: 220, height: 110 },
+  );
+});
+
+test("resizeRect uses Alt to grow symmetrically from the center", () => {
+  assert.deepEqual(
+    geo.resizeRect({ x: 100, y: 100, width: 200, height: 100 }, "se", 20, 10, { centered: true }),
+    { x: 80, y: 90, width: 240, height: 120 },
+  );
+});
+
+test("resizeRect uses Shift to preserve the starting aspect ratio", () => {
+  assert.deepEqual(
+    geo.resizeRect({ x: 100, y: 100, width: 200, height: 100 }, "e", 40, 0, { preserveAspect: true }),
+    { x: 100, y: 90, width: 240, height: 120 },
+  );
+});
+
+test("resizeRect combines Alt and Shift", () => {
+  assert.deepEqual(
+    geo.resizeRect({ x: 100, y: 100, width: 200, height: 100 }, "se", 20, 10, { centered: true, preserveAspect: true }),
+    { x: 80, y: 90, width: 240, height: 120 },
+  );
+});
+
+test("resizeRect projects corner Shift movement onto the starting aspect ratio", () => {
+  assert.deepEqual(
+    geo.resizeRect(
+      { x: 100, y: 100, width: 200, height: 100 },
+      "se",
+      40,
+      10,
+      { preserveAspect: true },
+    ),
+    { x: 100, y: 100, width: 240, height: 120 },
+  );
+});
+
+test("resizeRect preserves a right-edge anchor while resizing without modifiers", () => {
+  assert.deepEqual(
+    geo.resizeRect(
+      { x: 100, y: 100, width: 200, height: 100 },
+      "w",
+      -20,
+      0,
+      { bounds: { width: 1000, height: 800 } },
+    ),
+    { x: 80, y: 100, width: 220, height: 100 },
+  );
+});
+
+test("resizeRect caps a centered resize at the viewport edge", () => {
+  assert.deepEqual(
+    geo.resizeRect(
+      { x: 100, y: 100, width: 200, height: 100 },
+      "se",
+      1000,
+      1000,
+      { centered: true, bounds: { width: 500, height: 400 } },
+    ),
+    { x: 0, y: 0, width: 400, height: 300 },
+  );
+});
+
 test("establishesContainingBlock accepts transform, filter and perspective", () => {
   assert.equal(geo.establishesContainingBlock({ transform: "translateY(4px)" }), true);
   assert.equal(geo.establishesContainingBlock({ filter: "blur(2px)" }), true);

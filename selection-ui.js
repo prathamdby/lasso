@@ -271,9 +271,9 @@
       <div class="lasso-preview-actions">
         <button type="button" class="lasso-preview-action" data-mode="visible">
           <span class="lasso-preview-action-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="3" y="5" width="18" height="14" rx="2"/>
-              <path d="M7 9h10"/>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect width="18" height="18" x="3" y="3" rx="2"/>
+              <path d="M3 9h18"/><path d="M9 21V9"/>
             </svg>
           </span>
           <span class="lasso-preview-action-copy">
@@ -283,9 +283,10 @@
         </button>
         <button type="button" class="lasso-preview-action" data-mode="fullpage">
           <span class="lasso-preview-action-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="4" y="3" width="16" height="18" rx="2"/>
-              <path d="M8 7h8M8 11h8M8 15h5"/>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="m9 10 3-3 3 3"/><path d="M12 13V7"/>
+              <rect width="20" height="14" x="2" y="3" rx="2"/>
+              <path d="M12 17v4"/><path d="M8 21h8"/>
             </svg>
           </span>
           <span class="lasso-preview-action-copy">
@@ -296,11 +297,10 @@
       </div>
       <div class="lasso-preview-center">
         <div class="lasso-preview-mark" aria-hidden="true">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none" aria-hidden="true">
-            <rect width="128" height="128" rx="28" fill="#2563D4"/>
-            <rect x="28" y="28" width="72" height="72" rx="10" stroke="#FFFFFF" stroke-width="6" stroke-dasharray="14 10"/>
-            <circle cx="34" cy="34" r="8" fill="#FFFFFF"/>
-            <path d="M34 34L52 52" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round"/>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/>
+            <path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/>
+            <path d="M7 12h10"/>
           </svg>
         </div>
         <p class="lasso-preview-text">Drag a region, or hover an element and click. Esc cancels.</p>
@@ -365,17 +365,13 @@
     selectionNode.className = "lasso-hover";
     selectionNode.style.display = "none";
 
-    const dimensionsNode = document.createElement("div");
-    dimensionsNode.id = "lasso-dimensions";
-    selectionNode.appendChild(dimensionsNode);
-
     const handles = HANDLE_DIRS.map((dir) => {
       const handle = document.createElement("div");
       handle.className = "lasso-handle";
       handle.dataset.dir = dir;
       handle.style.cursor = HANDLE_CURSORS[dir];
       handle.style.display = "none";
-      handle.addEventListener("mousedown", (e) => startResize(e, dir));
+      handle.addEventListener("pointerdown", (e) => startResize(e, dir));
       selectionNode.appendChild(handle);
       return handle;
     });
@@ -383,25 +379,27 @@
     const toolbarNode = document.createElement("div");
     toolbarNode.id = "lasso-toolbar";
     toolbarNode.innerHTML = `
-      <button type="button" class="lasso-btn-close" data-action="close" aria-label="Close">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
-      </button>
-      <span class="lasso-toolbar-divider" aria-hidden="true"></span>
+      <output id="lasso-dimensions" class="lasso-toolbar-dimensions" aria-label="Selection dimensions"></output>
       <button type="button" class="lasso-btn-copy" data-action="copy" aria-label="Copy">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-        Copy
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+        <span>Copy</span>
       </button>
-      <button type="button" class="lasso-btn-download" data-action="download" aria-label="Download">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        Download
+      <button type="button" class="lasso-btn-download" data-action="download" aria-label="Save capture">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></svg>
+        <span>Save</span>
       </button>
       <span class="lasso-toolbar-divider lasso-padding-divider" aria-hidden="true" style="display:none"></span>
       <label class="lasso-padding-control" style="display:none">
-        <span>Padding</span>
+        <span>Inset</span>
         <input type="number" id="lasso-padding-input" min="0" max="100" value="0" aria-label="Padding in pixels">
       </label>
+      <span class="lasso-toolbar-divider lasso-close-divider" aria-hidden="true"></span>
+      <button type="button" class="lasso-btn-close" data-action="close" aria-label="Close capture">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+      </button>
     `;
     toolbarNode.addEventListener("click", onToolbarClick);
+    const dimensionsNode = toolbarNode.querySelector("#lasso-dimensions");
     const paddingInput = toolbarNode.querySelector("#lasso-padding-input");
     if (paddingInput) {
       paddingInput.addEventListener("input", onPaddingChange);
@@ -995,32 +993,12 @@
       dimensionsLabel += " \u00b7 " + sel.pickedItems.length + " elements";
     }
     sel.dom.dimensions.textContent = dimensionsLabel;
-    sel.dom.dimensions.style.display = phase === "locked" ? "block" : "none";
+    sel.dom.dimensions.title = "Shift: keep proportions · Alt: resize from center";
+    sel.dom.dimensions.style.display = phase === "locked" ? "flex" : "none";
 
     if (phase === "locked") {
-      positionHandles(rect);
       positionToolbar(rect);
     }
-  }
-
-  function positionHandles(rect) {
-    const { width, height } = rect;
-    const positions = {
-      nw: [0, 0],
-      n: [width / 2, 0],
-      ne: [width, 0],
-      e: [width, height / 2],
-      se: [width, height],
-      s: [width / 2, height],
-      sw: [0, height],
-      w: [0, height / 2],
-    };
-
-    sel.dom.handles.forEach((handle) => {
-      const [left, top] = positions[handle.dataset.dir];
-      handle.style.left = left + "px";
-      handle.style.top = top + "px";
-    });
   }
 
   function updatePaddingControlVisibility() {
@@ -1066,8 +1044,17 @@
     sel.dom.toolbar.classList.remove("lasso-toolbar-fixed");
     const gap = 8;
     const toolbarWidth = sel.dom.toolbar.offsetWidth || 300;
-    sel.dom.toolbar.style.left = Math.max(0, rect.width - toolbarWidth) + "px";
-    sel.dom.toolbar.style.top = rect.height + gap + "px";
+    const toolbarHeight = sel.dom.toolbar.offsetHeight || 40;
+    const maxLeft = Math.max(0, window.innerWidth - rect.x - toolbarWidth);
+    const left = Math.min(maxLeft, Math.max(0, (rect.width - toolbarWidth) / 2));
+    const below = rect.y + rect.height + gap + toolbarHeight <= window.innerHeight;
+    const preferredTop = below ? rect.height + gap : -toolbarHeight - gap;
+    const top = Math.max(
+      -rect.y,
+      Math.min(preferredTop, window.innerHeight - rect.y - toolbarHeight),
+    );
+    sel.dom.toolbar.style.left = left + "px";
+    sel.dom.toolbar.style.top = top + "px";
   }
 
   function startResize(e, dir) {
@@ -1086,36 +1073,35 @@
     const startX = e.clientX;
     const startY = e.clientY;
     const start = { ...sel.rect };
+    const pointerId = e.pointerId;
+    if (pointerId != null) selectionEl().setPointerCapture?.(pointerId);
 
     function onMove(ev) {
       const dx = ev.clientX - startX;
       const dy = ev.clientY - startY;
-      let { x, y, width, height } = start;
-
-      if (dir.includes("e")) width = start.width + dx;
-      if (dir.includes("w")) {
-        x = start.x + dx;
-        width = start.width - dx;
-      }
-      if (dir.includes("s")) height = start.height + dy;
-      if (dir.includes("n")) {
-        y = start.y + dy;
-        height = start.height - dy;
-      }
-
-      sel.rect = normalizeRect({ x, y, width, height });
+      const next = window.LassoGeometry.resizeRect(start, dir, dx, dy, {
+        minSize: MIN_SELECTION_SIZE,
+        centered: ev.altKey || ev.ctrlKey,
+        preserveAspect: ev.shiftKey,
+        bounds: { width: window.innerWidth, height: window.innerHeight },
+      });
+      sel.rect = next;
       renderSelection(sel.rect, "locked");
     }
 
     function onUp() {
       sel.baseRect = { ...sel.rect };
       selectionEl().classList.remove("lasso-resizing");
-      document.removeEventListener("mousemove", onMove, true);
-      document.removeEventListener("mouseup", onUp, true);
+      document.removeEventListener("pointermove", onMove, true);
+      document.removeEventListener("pointerup", onUp, true);
+      document.removeEventListener("pointercancel", onUp, true);
+      if (pointerId != null && selectionEl().hasPointerCapture?.(pointerId)) {
+        selectionEl().releasePointerCapture(pointerId);
+      }
     }
-
-    document.addEventListener("mousemove", onMove, true);
-    document.addEventListener("mouseup", onUp, true);
+    document.addEventListener("pointermove", onMove, true);
+    document.addEventListener("pointerup", onUp, true);
+    document.addEventListener("pointercancel", onUp, true);
   }
 
   function onToolbarClick(e) {

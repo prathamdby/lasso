@@ -1,389 +1,111 @@
-/* Mirrors popup.css tokens */
-html.lasso-active,
-html.lasso-active * {
-  user-select: none !important;
-  -webkit-user-select: none !important;
+:root {
+  --lasso-ink: #11120f;
+  --lasso-deep: #1a1b16;
+  --lasso-moss: #292b23;
+  --lasso-chalk: #f4f0e5;
+  --lasso-soft: #c5c0b3;
+  --lasso-dim: #858178;
+  --lasso-signal: #c98468;
+  --lasso-signal-light: #dfa68f;
+  --lasso-focus: #ffd2bc;
 }
 
-#lasso-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 2147483645;
-  cursor: crosshair;
-  pointer-events: auto;
-}
+html.lasso-active, html.lasso-active * { user-select: none !important; -webkit-user-select: none !important; }
 
-#lasso-overlay.lasso-overlay-dim {
-  background: rgba(12, 14, 18, 0.72);
-}
+#lasso-overlay { position: fixed; inset: 0; z-index: 2147483645; cursor: crosshair; pointer-events: auto; }
+#lasso-overlay.lasso-overlay-dim { background: rgba(17,18,15,.78); }
 
-#lasso-hint {
-  position: fixed;
-  top: 16px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 2147483647;
-  padding: 10px 14px;
-  background: #151820;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
-  color: #8b93a3;
-  font-family:
-    "Inter",
-    system-ui,
-    -apple-system,
-    "Segoe UI",
-    sans-serif;
-  font-size: 12px;
-  line-height: 1.35;
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
-  pointer-events: none;
+#lasso-hint, #lasso-notice {
+  position: fixed; top: 17px; left: 50%; z-index: 2147483647; transform: translateX(-50%);
+  padding: 9px 13px; border: 1px solid rgba(244,240,229,.14); border-radius: 6px;
+  background: var(--lasso-deep); color: var(--lasso-soft); font: 12px/1.35 ui-sans-serif,system-ui,sans-serif;
+  box-shadow: 0 6px 18px rgba(0,0,0,.32); pointer-events: none;
 }
+#lasso-notice { color: var(--lasso-chalk); }
 
 #lasso-selection {
-  position: fixed;
-  z-index: 2147483647;
-  box-sizing: border-box;
-  border: 2px dashed #3b8cff;
-  border-radius: 2px;
-  box-shadow: 0 0 0 9999px rgba(12, 14, 18, 0.72);
+  position: fixed; z-index: 2147483647; box-sizing: border-box; border: 1px solid rgba(223,166,143,.9);
+  background: rgba(201,132,104,.035);
+  box-shadow: 0 0 0 9999px rgba(17,18,15,.78);
   pointer-events: none;
 }
+#lasso-selection.lasso-hover { background-color: rgba(201,132,104,.075); border-color: var(--lasso-signal-light); }
+#lasso-selection.lasso-locked { background-color: rgba(201,132,104,.035); }
 
-#lasso-selection.lasso-hover {
-  border-color: #5ca0ff;
-  background: rgba(59, 140, 255, 0.08);
+#lasso-toolbar .lasso-toolbar-dimensions {
+  position: relative !important; left: auto !important; top: auto !important; transform: none !important;
+  display: none; flex: 0 0 auto; align-items: center; min-height: 30px; padding: 7px 10px 7px 8px; border-right: 1px solid rgba(244,240,229,.14);
+  color: var(--lasso-soft); opacity: .9; font: 600 10px/1 ui-monospace,SFMono-Regular,Menlo,monospace;
+  white-space: nowrap; pointer-events: none;
 }
 
-#lasso-selection.lasso-locked {
-  border-color: #3b8cff;
-  background: rgba(59, 140, 255, 0.04);
-}
+.lasso-handle { position: absolute; border: 0; border-radius: 0; background: transparent; pointer-events: auto; z-index: 1; touch-action: none; }
+.lasso-handle[data-dir="nw"], .lasso-handle[data-dir="ne"], .lasso-handle[data-dir="sw"], .lasso-handle[data-dir="se"] { width: 28px; height: 28px; z-index: 2; }
+.lasso-handle[data-dir="nw"] { top: -14px; left: -14px; }
+.lasso-handle[data-dir="ne"] { top: -14px; right: -14px; }
+.lasso-handle[data-dir="sw"] { bottom: -14px; left: -14px; }
+.lasso-handle[data-dir="se"] { right: -14px; bottom: -14px; }
+.lasso-handle[data-dir="nw"]::before, .lasso-handle[data-dir="ne"]::before, .lasso-handle[data-dir="sw"]::before, .lasso-handle[data-dir="se"]::before,
+.lasso-handle[data-dir="nw"]::after, .lasso-handle[data-dir="ne"]::after, .lasso-handle[data-dir="sw"]::after, .lasso-handle[data-dir="se"]::after { content: ""; position: absolute; border-radius: 2px; background: var(--lasso-signal-light); }
+.lasso-handle[data-dir="nw"]::before, .lasso-handle[data-dir="sw"]::before { left: 13px; width: 18px; height: 2px; }
+.lasso-handle[data-dir="ne"]::before, .lasso-handle[data-dir="se"]::before { right: 13px; width: 18px; height: 2px; }
+.lasso-handle[data-dir="nw"]::before, .lasso-handle[data-dir="ne"]::before { top: 13px; }
+.lasso-handle[data-dir="sw"]::before, .lasso-handle[data-dir="se"]::before { bottom: 13px; }
+.lasso-handle[data-dir="nw"]::after, .lasso-handle[data-dir="ne"]::after { top: 13px; width: 2px; height: 18px; }
+.lasso-handle[data-dir="sw"]::after, .lasso-handle[data-dir="se"]::after { bottom: 13px; width: 2px; height: 18px; }
+.lasso-handle[data-dir="nw"]::after, .lasso-handle[data-dir="sw"]::after { left: 13px; }
+.lasso-handle[data-dir="ne"]::after, .lasso-handle[data-dir="se"]::after { right: 13px; }
+.lasso-handle[data-dir="n"] { top: -10px; right: 14px; left: 14px; height: 20px; }
+.lasso-handle[data-dir="s"] { right: 14px; bottom: -10px; left: 14px; height: 20px; }
+.lasso-handle[data-dir="e"] { top: 14px; right: -10px; bottom: 14px; width: 20px; }
+.lasso-handle[data-dir="w"] { top: 14px; bottom: 14px; left: -10px; width: 20px; }
 
-#lasso-dimensions {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  padding: 5px 10px;
-  background: #151820;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  color: #f3f5f8;
-  font-family:
-    "Inter",
-    system-ui,
-    -apple-system,
-    "Segoe UI",
-    sans-serif;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  white-space: nowrap;
-  pointer-events: none;
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
+#lasso-toolbar, .lasso-preview-actions {
+  display: flex; align-items: center; gap: 3px; padding: 4px; border: 1px solid rgba(244,240,229,.16); border-radius: 9px;
+  background: rgba(26,27,22,.98); box-shadow: 0 5px 15px rgba(0,0,0,.32); pointer-events: auto; font-family: ui-sans-serif,system-ui,sans-serif;
 }
+#lasso-toolbar { position: absolute; display: none; z-index: 2; }
+#lasso-selection.lasso-locked #lasso-toolbar, #lasso-toolbar.lasso-toolbar-fixed { display: flex; }
+#lasso-toolbar.lasso-toolbar-fixed { position: fixed; top: 17px; right: 17px; left: auto; z-index: 2147483647; }
+.lasso-toolbar-divider { width: 1px; height: 22px; background: rgba(244,240,229,.14); }
 
-.lasso-handle {
-  position: absolute;
-  width: 10px;
-  height: 10px;
-  margin: -5px 0 0 -5px;
-  background: #3b8cff;
-  border: 2px solid #fff;
-  border-radius: 50%;
-  box-shadow: 0 2px 8px rgba(37, 99, 212, 0.45);
-  pointer-events: auto;
-  z-index: 1;
+#lasso-toolbar button, .lasso-preview-action, .lasso-preview-cancel {
+  display: flex; align-items: center; gap: 7px; min-height: 30px; padding: 7px 10px; border: 0; border-radius: 5px;
+  background: transparent; color: var(--lasso-chalk); font-size: 12px; font-weight: 680; cursor: pointer; white-space: nowrap;
 }
+#lasso-toolbar button:hover, .lasso-preview-action:hover, .lasso-preview-cancel:hover { background: var(--lasso-moss); }
+#lasso-toolbar button:focus-visible, .lasso-preview-action:focus-visible, .lasso-preview-cancel:focus-visible { outline: 2px solid var(--lasso-focus); outline-offset: 2px; }
+#lasso-toolbar .lasso-btn-close { color: var(--lasso-dim); }
+#lasso-toolbar .lasso-btn-copy { color: var(--lasso-soft); }
+#lasso-toolbar .lasso-btn-download { background: var(--lasso-signal); color: #19120f; }
+#lasso-toolbar .lasso-btn-download:hover { background: var(--lasso-signal-light); }
+.lasso-padding-control { display: flex; align-items: center; gap: 7px; padding: 0 5px; color: var(--lasso-dim); font-size: 10px; white-space: nowrap; }
+#lasso-padding-input { width: 36px; padding: 5px 3px; border: 0; border-radius: 4px; background: var(--lasso-ink); color: var(--lasso-chalk); font: 600 10px ui-monospace,monospace; text-align: center; }
+#lasso-padding-input:focus { outline: 2px solid var(--lasso-focus); outline-offset: 1px; }
+#lasso-toolbar svg { width: 14px; height: 14px; flex-shrink: 0; }
 
-#lasso-toolbar {
-  position: absolute;
-  display: none;
-  align-items: center;
-  gap: 6px;
-  padding: 6px;
-  background: #151820;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
-  pointer-events: auto;
-  z-index: 2;
-  font-family:
-    "Inter",
-    system-ui,
-    -apple-system,
-    "Segoe UI",
-    sans-serif;
-}
+#lasso-preview-screen { position: fixed; inset: 0; z-index: 2147483646; pointer-events: none; font-family: ui-sans-serif,system-ui,sans-serif; }
+.lasso-preview-actions { position: fixed; top: 17px; right: 17px; }
+.lasso-preview-action + .lasso-preview-action { border-left: 1px solid rgba(244,240,229,.14); border-radius: 0; }
+.lasso-preview-action-icon { display: grid; place-items: center; color: var(--lasso-signal-light); }
+.lasso-preview-action-icon svg { width: 17px; height: 17px; }
+.lasso-preview-action-copy { text-align: left; }
+.lasso-preview-action-title { display: block; }
+.lasso-preview-action-desc { display: block; margin-top: 2px; color: var(--lasso-dim); font-size: 10px; font-weight: 400; }
+.lasso-preview-center { position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%); display: flex; flex-direction: column; align-items: center; gap: 17px; max-width: 390px; padding: 24px; text-align: center; pointer-events: auto; }
+.lasso-preview-mark { display: grid; place-items: center; width: 76px; height: 76px; color: var(--lasso-signal); }
+.lasso-preview-mark svg { width: 68px; height: 68px; stroke-width: 1.4; }
+.lasso-preview-text { margin: 0; color: var(--lasso-chalk); font-size: 15px; line-height: 1.45; }
+.lasso-preview-cancel { border: 1px solid rgba(244,240,229,.18); color: var(--lasso-soft); }
 
-#lasso-selection.lasso-locked #lasso-toolbar,
-#lasso-toolbar.lasso-toolbar-fixed {
-  display: flex;
-}
-
-#lasso-toolbar.lasso-toolbar-fixed {
-  position: fixed;
-  top: 16px;
-  right: 16px;
-  left: auto;
-  z-index: 2147483647;
-}
-
-.lasso-toolbar-divider {
-  width: 1px;
-  height: 24px;
-  background: rgba(255, 255, 255, 0.08);
-  flex-shrink: 0;
-}
-
-#lasso-toolbar button {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 12px;
-  border: 1px solid transparent;
-  border-radius: 9px;
-  background: transparent;
-  color: #f3f5f8;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-#lasso-toolbar button:hover {
-  background: #1c2130;
-  border-color: rgba(255, 255, 255, 0.1);
-}
-
-#lasso-toolbar button:focus-visible {
-  outline: 2px solid #3b8cff;
-  outline-offset: 2px;
-}
-
-#lasso-toolbar .lasso-btn-close {
-  padding: 8px 10px;
-  color: #8b93a3;
-}
-
-#lasso-toolbar .lasso-btn-close:hover {
-  color: #f3f5f8;
-  background: #1c2130;
-}
-
-#lasso-toolbar .lasso-btn-copy {
-  background: rgba(59, 140, 255, 0.14);
-  border-color: rgba(59, 140, 255, 0.2);
-  color: #3b8cff;
-}
-
-#lasso-toolbar .lasso-btn-copy:hover {
-  background: rgba(59, 140, 255, 0.22);
-  border-color: rgba(59, 140, 255, 0.35);
-}
-
-#lasso-toolbar .lasso-btn-download {
-  background: #3b8cff;
-  border-color: rgba(59, 140, 255, 0.55);
-  color: #fff;
-}
-
-#lasso-toolbar .lasso-btn-download:hover {
-  background: #2f7ef0;
-}
-
-.lasso-padding-control {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 4px;
-  color: #f3f5f8;
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-  pointer-events: auto;
-}
-
-#lasso-padding-input {
-  width: 44px;
-  padding: 5px 6px;
-  background: #0d1018;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 7px;
-  color: #f3f5f8;
-  font-size: 12px;
-  font-weight: 600;
-  text-align: center;
-}
-
-#lasso-padding-input:focus {
-  outline: 2px solid #3b8cff;
-  outline-offset: 1px;
-}
-
-#lasso-toolbar svg {
-  width: 15px;
-  height: 15px;
-  flex-shrink: 0;
-}
-
-#lasso-preview-screen {
-  position: fixed;
-  inset: 0;
-  z-index: 2147483646;
-  pointer-events: none;
-  font-family:
-    "Inter",
-    system-ui,
-    -apple-system,
-    "Segoe UI",
-    sans-serif;
-}
-
-.lasso-preview-actions {
-  position: fixed;
-  top: 16px;
-  right: 16px;
-  display: flex;
-  gap: 0;
-  pointer-events: auto;
-  background: #151820;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
-  overflow: hidden;
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
-}
-
-.lasso-preview-action {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 14px;
-  border: none;
-  background: transparent;
-  color: #f3f5f8;
-  cursor: pointer;
-  text-align: left;
-  min-width: 148px;
-}
-
-.lasso-preview-action + .lasso-preview-action {
-  border-left: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.lasso-preview-action:hover {
-  background: #1c2130;
-}
-
-.lasso-preview-action:focus-visible {
-  outline: 2px solid #3b8cff;
-  outline-offset: -2px;
-}
-
-.lasso-preview-action-icon {
-  width: 34px;
-  height: 34px;
-  border-radius: 9px;
-  background: rgba(59, 140, 255, 0.14);
-  color: #3b8cff;
-  display: grid;
-  place-items: center;
-  flex-shrink: 0;
-}
-
-.lasso-preview-action-icon svg {
-  width: 18px;
-  height: 18px;
-}
-
-.lasso-preview-action-title {
-  display: block;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.lasso-preview-action-desc {
-  display: block;
-  margin-top: 2px;
-  font-size: 10px;
-  color: #8b93a3;
-}
-
-.lasso-preview-center {
-  position: fixed;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 14px;
-  max-width: 360px;
-  padding: 0 20px;
-  text-align: center;
-  pointer-events: auto;
-}
-
-.lasso-preview-mark {
-  width: 72px;
-  height: 72px;
-  border-radius: 18px;
-  overflow: hidden;
-  box-shadow: 0 12px 28px rgba(37, 99, 212, 0.4);
-}
-
-.lasso-preview-mark svg {
-  width: 100%;
-  height: 100%;
-  display: block;
-}
-
-.lasso-preview-text {
-  margin: 0;
-  color: #c8ced8;
-  font-size: 14px;
-  line-height: 1.45;
-}
-
-.lasso-preview-cancel {
-  padding: 8px 18px;
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  border-radius: 8px;
-  background: transparent;
-  color: #f3f5f8;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.lasso-preview-cancel:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.35);
-}
-
-.lasso-preview-cancel:focus-visible {
-  outline: 2px solid #3b8cff;
-  outline-offset: 2px;
-}
-
-#lasso-notice {
-  position: fixed;
-  top: 16px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 2147483647;
-  padding: 10px 14px;
-  background: #151820;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
-  color: #f0b429;
-  font:
-    12px/1.35 Inter,
-    system-ui,
-    -apple-system,
-    "Segoe UI",
-    sans-serif;
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
-  pointer-events: none;
+@media (prefers-reduced-motion: reduce) {
+  html.lasso-active #lasso-overlay,
+  html.lasso-active #lasso-selection,
+  html.lasso-active #lasso-selection *,
+  html.lasso-active #lasso-toolbar,
+  html.lasso-active #lasso-preview-screen,
+  html.lasso-active #lasso-preview-screen * {
+    transition-duration: .001ms !important;
+    animation-duration: .001ms !important;
+  }
 }
