@@ -134,6 +134,8 @@
   async function beginStitch({
     totalHeight,
     viewportHeight,
+    sliceHeight,
+    fixedHeight,
     devicePixelRatio,
     exportRect,
     skipCrop,
@@ -144,6 +146,9 @@
     stitch = {
       totalHeight,
       viewportHeight,
+      // One-pass renders slice by chunk, not by viewport.
+      sliceHeight,
+      fixedHeight: !!fixedHeight,
       dpr: devicePixelRatio,
       exportRect,
       skipCrop,
@@ -173,6 +178,7 @@
         stitch.viewportHeight,
         stitch.dpr,
         width,
+        { fixedHeight: stitch.fixedHeight },
       );
       stitch.ctx = stitch.canvas.getContext("2d");
       fillJpegBackdrop(
@@ -185,7 +191,7 @@
 
     const { destY, srcHeight } = LassoGeometry.sliceGeometry(
       y,
-      stitch.viewportHeight,
+      stitch.sliceHeight ?? stitch.viewportHeight,
       stitch.totalHeight,
       stitch.dpr,
     );

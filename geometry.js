@@ -35,14 +35,83 @@
   // allowance so lazy-loaded content still lands. Truncation is reported at
   // finalize by comparing what was drawn against the page height, so the canvas
   // only has to say how tall it can be.
-  function stitchCanvasFor(measuredHeight, viewportHeight, dpr, width) {
+  //
+  // A one-pass render knows the full height up front and nothing scrolls, so it
+  // passes `fixedHeight` to skip the growth allowance.
+  function stitchCanvasFor(
+    measuredHeight,
+    viewportHeight,
+    dpr,
+    width,
+    { fixedHeight = false } = {},
+  ) {
     const maxHeight = Math.min(
       MAX_CANVAS_DIM,
       Math.floor(MAX_CANVAS_AREA / width),
     );
-    const planned = plannedCanvasHeight(measuredHeight, viewportHeight);
+    const planned = fixedHeight
+      ? measuredHeight
+      : plannedCanvasHeight(measuredHeight, viewportHeight);
 
     return Math.min(Math.round(planned * dpr), maxHeight);
+  }
+
+  // The smallest CSS length whose device-pixel size is a whole number, so chunk
+  // edges land on pixel boundaries and adjacent chunks cannot leave a seam.
+  function wholePixelUnit(dpr) {
+    for (let unit = 1; unit <= 100; unit += 1) {
+      const device = dpr * unit;
+      if (Math.abs(device - Math.round(device)) < 1e-6) return unit;
+    }
+    return 1;
+  }
+
+  // Splits a document into clips for `Page.captureScreenshot`. A single capture
+  // taller than the GPU texture limit repeats its content, so each chunk stays
+  // under `maxDevicePx`. Every `y` and `height` is a whole number of device
+  // pixels. The last chunk is rounded up to the same grid; the stitch trims it
+  // back to the real page height. `width` (CSS px) applies the stitch canvas
+  // limits to the total.
+  function screenshotChunks(contentHeight, dpr, maxDevicePx = 8192, width) {
+    if (!(contentHeight > 0) || !(dpr > 0)) return [];
+
+    const unit = wholePixelUnit(dpr);
+    const chunkHeight = Math.max(
+      unit,
+      Math.floor(maxDevicePx / dpr / unit) * unit,
+    );
+
+    let total = contentHeight;
+    if (width > 0) {
+      const maxDeviceHeight = Math.min(
+        MAX_CANVAS_DIM,
+        Math.floor(MAX_CANVAS_AREA / Math.round(width * dpr)),
+      );
+      const maxCss = Math.floor(maxDeviceHeight / dpr / unit) * unit;
+      total = Math.min(total, maxCss);
+    }
+
+    const chunks = [];
+    for (let y = 0; y < total; y += chunkHeight) {
+      const remaining = Math.ceil((total - y) / unit) * unit;
+      chunks.push({ y, height: Math.min(chunkHeight, remaining) });
+    }
+    return chunks;
+  }
+
+  // Indices of elements whose height followed a viewport height change of
+  // `delta`. Compares measurements taken before and after resizing the viewport.
+  // An element sized `100vh` moves by the full delta, `50vh` by half; anything
+  // that moved by more than the delta reflowed for another reason.
+  function viewportSizedIndices(before, after, delta) {
+    const indices = [];
+    const count = Math.min(before.length, after.length);
+    for (let i = 0; i < count; i += 1) {
+      if (!Number.isFinite(before[i]) || !Number.isFinite(after[i])) continue;
+      const change = Math.abs(after[i] - before[i]);
+      if (change >= 1 && change <= Math.abs(delta) + 1) indices.push(i);
+    }
+    return indices;
   }
 
   function sliceGeometry(scrollY, viewportHeight, totalHeight, dpr) {
@@ -87,8 +156,19 @@
   //               position at the document coordinates it occupies now.
   //   "hide"    — scrims and floating widgets have no honest document position;
   //               pinning one drops it mid-page and reads as a bug.
-  function treatmentFor(position, rect, viewportWidth, viewportHeight) {
+  //
+  // `seenScrolled` marks a fixed element first seen after the page scrolled. It
+  // cannot be pinned honestly: its current position is relative to a scroll
+  // offset that no slice shares, so pinning lands it partway down the page.
+  function treatmentFor(
+    position,
+    rect,
+    viewportWidth,
+    viewportHeight,
+    { seenScrolled = false } = {},
+  ) {
     if (position === "sticky") return "release";
+    if (seenScrolled) return "hide";
     if (!rect || viewportWidth <= 0 || viewportHeight <= 0) return "pin";
 
     const coversViewport =
@@ -208,6 +288,8 @@
 
   window.LassoGeometry = {
     stitchCanvasFor,
+    screenshotChunks,
+    viewportSizedIndices,
     sliceGeometry,
     cropRectForStitch,
     absoluteOffsetFor,

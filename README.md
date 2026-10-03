@@ -50,7 +50,7 @@ In preview mode you can hover to pick an element, **Shift+click** to add more el
 | ------------- | ----------------- | ------------------------------------------------------------------------------------------ |
 | **Preview**   | `Ctrl+Shift+S`    | Dimmed overlay. Pick (Shift+click to add elements), freestyle draw, visible, or full page. |
 | **Visible**   | Popup → Visible   | Locks the current viewport. Resize, then copy or download.                                 |
-| **Full page** | Popup → Full page | Scrolls and stitches the page. Fixed navbars render once. Optional crop before export.     |
+| **Full page** | Popup → Full page | Renders the page in one pass. Fixed navbars appear once. Optional crop before export.      |
 | **Pick**      | Popup → Pick      | Hover elements, click to lock. Shift+click to add more into one bounding box.              |
 | **Freestyle** | Popup → Freestyle | Drag a custom box on the page.                                                             |
 
@@ -87,7 +87,7 @@ flowchart LR
 
 1. **Popup or command** tells the background worker which capture mode to start.
 2. **Content script** renders the overlay, selection box, and toolbar on the active tab.
-3. **Background** captures the tab (and scrolls for full-page stitches), then asks the content script to crop or stitch.
+3. **Background** captures the tab, then asks the content script to crop or stitch. Full-page shots render in one pass through the debugger (Chrome shows a debugging bar meanwhile) and fall back to scroll-and-stitch if the debugger is unavailable.
 4. **Export** writes to the clipboard or triggers a download. Images stay on your machine.
 
 ## Permissions
@@ -98,6 +98,7 @@ flowchart LR
 | `scripting`      | Inject capture UI when needed.                                                               |
 | `downloads`      | Save downloaded screenshots.                                                                 |
 | `clipboardWrite` | Copy PNG to clipboard.                                                                       |
+| `debugger`       | Render full-page screenshots in one pass; Chrome shows a debugging bar while it runs.        |
 | `<all_urls>`     | Run on any site you screenshot and handle the global hotkey without opening the popup first. |
 
 Lasso does not send page content to any external service.
