@@ -518,7 +518,6 @@ async function prepareDebuggerRender(tabId, originalScrollY) {
     width: metrics.cssLayoutViewport.clientWidth,
     contentHeight: Math.max(
       metrics.cssContentSize.height,
-      metrics.contentSize?.height ?? 0,
       dims.totalHeight,
     ),
     viewportHeight: dims.viewportHeight,
