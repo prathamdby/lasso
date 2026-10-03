@@ -5,6 +5,8 @@
   const SCROLL_SETTLE_FRAMES = 10;
   const SCROLL_STABLE_FRAMES = 3;
   const SCROLL_EPSILON = 1;
+  const PRELOAD_SCROLL_BUDGET_MS = 2000;
+  const PRELOAD_DECODE_BUDGET_MS = 3000;
 
   function nextAnimationFrame() {
     return new Promise((resolve) => requestAnimationFrame(resolve));
@@ -72,6 +74,75 @@
     };
   }
 
+  function pageDimensions() {
+    return {
+      totalHeight: Math.max(
+        document.documentElement.scrollHeight,
+        document.body.scrollHeight,
+      ),
+      totalWidth: Math.max(
+        document.documentElement.scrollWidth,
+        document.body.scrollWidth,
+      ),
+      viewportHeight: window.innerHeight,
+      viewportWidth: window.innerWidth,
+      devicePixelRatio: window.devicePixelRatio,
+      scrollY: window.scrollY,
+    };
+  }
+
+  function wait(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  // Cancelling from the page flips the selection's capture flag at once, long
+  // before the background learns of it, so that flag is the abort signal.
+  function captureAborted() {
+    return !window.LassoSelection.isCaptureActive();
+  }
+
+  // Nothing scrolls during a one-pass render, so lazy content has to be asked
+  // for first: walk the page one viewport at a time, then let images decode.
+  // The page always ends back at the top, and a cancel comes back as `aborted`
+  // so the caller stops instead of pinning at a scrolled position.
+  async function preloadPage() {
+    const scrollDeadline = performance.now() + PRELOAD_SCROLL_BUDGET_MS;
+    const step = Math.max(1, window.innerHeight);
+    let aborted = false;
+
+    try {
+      for (
+        let y = step;
+        y <= maxScrollY() && performance.now() < scrollDeadline;
+        y += step
+      ) {
+        if (captureAborted()) {
+          aborted = true;
+          break;
+        }
+        window.scrollTo({ left: window.scrollX, top: y, behavior: "instant" });
+        await nextAnimationFrame();
+        await nextAnimationFrame();
+      }
+
+      if (!aborted) {
+        const pending = Array.from(document.images)
+          .filter((img) => !img.complete)
+          .map((img) => img.decode().catch(() => {}));
+        const fonts = document.fonts?.ready ?? Promise.resolve();
+        await Promise.race([
+          Promise.all([...pending, fonts.catch(() => {})]),
+          wait(PRELOAD_DECODE_BUDGET_MS),
+        ]);
+        aborted = captureAborted();
+      }
+    } finally {
+      await scrollToPosition({ y: 0 });
+    }
+
+    return { ...pageDimensions(), aborted };
+  }
+
   window.LassoCapture.init({
     isCaptureActive: () => window.LassoSelection.isCaptureActive(),
     onCaptureComplete: (options = {}) => {
@@ -88,20 +159,7 @@
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     switch (msg.type) {
       case LassoMsg.GET_PAGE_DIMENSIONS:
-        sendResponse({
-          totalHeight: Math.max(
-            document.documentElement.scrollHeight,
-            document.body.scrollHeight,
-          ),
-          totalWidth: Math.max(
-            document.documentElement.scrollWidth,
-            document.body.scrollWidth,
-          ),
-          viewportHeight: window.innerHeight,
-          viewportWidth: window.innerWidth,
-          devicePixelRatio: window.devicePixelRatio,
-          scrollY: window.scrollY,
-        });
+        sendResponse(pageDimensions());
         break;
 
       case LassoMsg.SCROLL_TO:
@@ -163,8 +221,31 @@
         return true;
 
       case LassoMsg.PIN_FIXED_ELEMENTS:
-        window.LassoFixed.pinFixedElements();
-        sendResponse({ ok: true });
+        window.LassoFixed.pinFixedElements()
+          .then(() => sendResponse({ ok: true }))
+          .catch(() => sendResponse({ ok: false }));
+        return true;
+
+      case LassoMsg.PRELOAD_PAGE:
+        preloadPage()
+          .then(sendResponse)
+          .catch(() => sendResponse(null));
+        return true;
+
+      case LassoMsg.VIEWPORT_SNAPSHOT:
+        sendResponse({
+          ok: true,
+          ...window.LassoFixed.snapshotViewportSized(),
+          viewportWidth: window.innerWidth,
+          viewportHeight: window.innerHeight,
+        });
+        break;
+
+      case LassoMsg.FREEZE_VIEWPORT_SIZED:
+        sendResponse({
+          ok: true,
+          ...window.LassoFixed.freezeViewportSized(msg.delta),
+        });
         break;
 
       case LassoMsg.RELEASE_FIXED_ELEMENTS:

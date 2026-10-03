@@ -1,6 +1,17 @@
-importScripts("messages.js");
+// geometry.js is a content-script module that publishes onto `window`. It is
+// pure, so the worker shares it by aliasing `window` to the worker global.
+globalThis.window ??= globalThis;
+importScripts("messages.js", "geometry.js");
 
 const FULLPAGE_SLICE_LIMIT = 500;
+const CDP_VERSION = "1.3";
+const CDP_CHUNK_MAX_DEVICE_PX = 8192;
+// How far the probe enlarges the viewport to find elements sized by it.
+const VIEWPORT_PROBE_DELTA = 100;
+// Chrome may resize the viewport during `captureBeyondViewport`, which grows
+// anything sized in `vh`. Freezing those elements costs one extra resize; set
+// to false if the spike shows the viewport holds still.
+const FREEZE_VIEWPORT_SIZED_DEFAULT = true;
 const WARM_TAB_CONCURRENCY = 5;
 const CAPTURE_MIN_INTERVAL_MS = 600;
 const CAPTURE_QUOTA_RETRIES = 2;
@@ -65,6 +76,13 @@ chrome.runtime.onInstalled.addListener(() => {
 
 chrome.runtime.onStartup.addListener(() => {
   warmOpenTabs().catch(() => {});
+});
+
+// The user can dismiss the "started debugging" bar, which detaches us mid-run.
+// Record it; the render loop checks the flag between chunks.
+chrome.debugger?.onDetach.addListener((source, reason) => {
+  const capture = activeCaptures.get(source.tabId);
+  if (capture) capture.detached = reason;
 });
 
 chrome.commands.onCommand.addListener((command) => {
@@ -383,7 +401,15 @@ async function handleSelectionCapture(tabId, mode, action) {
         originalScrollY = (
           await sendToTab(tabId, { type: LassoMsg.GET_PAGE_DIMENSIONS })
         ).scrollY;
-        await captureFullPage(tab, params, action, originalScrollY);
+        const outcome = await captureFullPageViaDebugger(
+          tab,
+          params,
+          action,
+          originalScrollY,
+        );
+        if (outcome === "fallback") {
+          await captureFullPage(tab, params, action, originalScrollY);
+        }
         return;
       }
 
@@ -411,6 +437,217 @@ async function handleSelectionCapture(tabId, mode, action) {
       await releaseFixedElements(tabId);
     }
   });
+}
+
+function cdp(tabId, method, params) {
+  return chrome.debugger.sendCommand({ tabId }, method, params);
+}
+
+// Reads the dimensions out of a PNG's IHDR chunk without decoding the image.
+// 32 base64 characters cover the first 24 bytes: signature, length, type, size.
+function pngSize(base64) {
+  const bytes = atob(base64.slice(0, 32));
+  if (bytes.length < 24 || !bytes.startsWith("\x89PNG")) return null;
+  const u32 = (offset) =>
+    ((bytes.charCodeAt(offset) << 24) |
+      (bytes.charCodeAt(offset + 1) << 16) |
+      (bytes.charCodeAt(offset + 2) << 8) |
+      bytes.charCodeAt(offset + 3)) >>>
+    0;
+  return { width: u32(16), height: u32(20) };
+}
+
+async function captureChunk(tabId, chunk, width, dpr) {
+  const { data } = await cdp(tabId, "Page.captureScreenshot", {
+    format: "png",
+    captureBeyondViewport: true,
+    optimizeForSpeed: true,
+    clip: { x: 0, y: chunk.y, width, height: chunk.height, scale: 1 },
+  });
+
+  // The stitch places slices by arithmetic, so a render at any other scale
+  // would land misaligned rather than fail. The CSS width is not a whole
+  // number of device pixels at fractional DPR and Chrome may round it either
+  // way. The canvas takes its width from the image, so one pixel of drift is
+  // harmless there; chunk heights are whole by construction and must match.
+  const size = pngSize(data);
+  const expectedWidth = Math.round(width * dpr);
+  const expectedHeight = Math.round(chunk.height * dpr);
+  if (
+    !size ||
+    Math.abs(size.width - expectedWidth) > 1 ||
+    size.height !== expectedHeight
+  ) {
+    throw new Error(
+      `Unexpected render size ${size?.width}x${size?.height}, wanted ${expectedWidth}x${expectedHeight}`,
+    );
+  }
+  return `data:image/png;base64,${data}`;
+}
+
+// Pins fixed elements and, when enabled, freezes anything sized by the
+// viewport so the one-pass render matches what the user sees. Throws on any
+// failure; the caller treats that as "fall back to stitching".
+async function prepareDebuggerRender(tabId, originalScrollY) {
+  await prepareTabForCapture(tabId);
+  const dims = await sendToTab(tabId, { type: LassoMsg.PRELOAD_PAGE });
+  if (!dims) throw new Error("Page preload failed");
+  if (dims.aborted) {
+    await abortCapture(tabId, originalScrollY);
+    return null;
+  }
+  if (await bailIfCancelled(tabId, originalScrollY)) return null;
+
+  const pin = await sendToTab(tabId, { type: LassoMsg.PIN_FIXED_ELEMENTS });
+  if (!pin?.ok) throw new Error("Pinning fixed elements failed");
+
+  if (FREEZE_VIEWPORT_SIZED_DEFAULT) {
+    const snapshot = await sendToTab(tabId, {
+      type: LassoMsg.VIEWPORT_SNAPSHOT,
+    });
+    if (!snapshot?.ok) throw new Error("Viewport snapshot failed");
+
+    await cdp(tabId, "Emulation.setDeviceMetricsOverride", {
+      width: snapshot.viewportWidth,
+      height: snapshot.viewportHeight + VIEWPORT_PROBE_DELTA,
+      deviceScaleFactor: 0,
+      mobile: false,
+    });
+    try {
+      const frozen = await sendToTab(tabId, {
+        type: LassoMsg.FREEZE_VIEWPORT_SIZED,
+        delta: VIEWPORT_PROBE_DELTA,
+      });
+      if (!frozen?.ok) throw new Error("Viewport freeze failed");
+    } finally {
+      await cdp(tabId, "Emulation.clearDeviceMetricsOverride").catch(() => {});
+    }
+  }
+
+  const metrics = await cdp(tabId, "Page.getLayoutMetrics");
+  return {
+    width: metrics.cssLayoutViewport.clientWidth,
+    contentHeight: Math.max(
+      metrics.cssContentSize.height,
+      dims.totalHeight,
+    ),
+    viewportHeight: dims.viewportHeight,
+    devicePixelRatio: dims.devicePixelRatio,
+  };
+}
+
+// Renders the whole page in one pass through the debugger: nothing scrolls, so
+// fixed elements paint once and there is no capture quota to wait on.
+//
+// Returns "fallback" only while nothing has been committed to the page's
+// stitch. STITCH_BEGIN marks the capture inactive in the page, so a failure
+// after it cannot be retried by another engine and is thrown instead.
+async function captureFullPageViaDebugger(
+  tab,
+  params,
+  action,
+  originalScrollY,
+) {
+  const tabId = tab.id;
+  if (!chrome.debugger || !/^https?:/.test(tab.url || "")) return "fallback";
+
+  try {
+    await chrome.debugger.attach({ tabId }, CDP_VERSION);
+  } catch (err) {
+    console.warn("Lasso: debugger unavailable, stitching instead:", err);
+    return "fallback";
+  }
+
+  const capture = activeCaptures.get(tabId);
+  let rendered = false;
+
+  try {
+    let setup;
+    let first;
+    let chunks;
+    try {
+      setup = await prepareDebuggerRender(tabId, originalScrollY);
+      if (!setup) return "done";
+
+      chunks = LassoGeometry.screenshotChunks(
+        setup.contentHeight,
+        setup.devicePixelRatio,
+        CDP_CHUNK_MAX_DEVICE_PX,
+        setup.width,
+      );
+      if (!chunks.length) throw new Error("Nothing to render");
+
+      // The first chunk doubles as a probe: a wrong scale shows up here, while
+      // falling back is still possible.
+      first = await captureChunk(
+        tabId,
+        chunks[0],
+        setup.width,
+        setup.devicePixelRatio,
+      );
+      if (capture?.detached) throw new Error("Debugger detached early");
+    } catch (err) {
+      console.warn("Lasso: one-pass render failed, stitching instead:", err);
+      await releaseFixedElements(tabId);
+      return "fallback";
+    }
+
+    if (await bailIfCancelled(tabId, originalScrollY)) return "done";
+
+    const begin = await sendToTab(tabId, {
+      type: LassoMsg.STITCH_BEGIN,
+      totalHeight: setup.contentHeight,
+      viewportHeight: setup.viewportHeight,
+      sliceHeight: chunks[0].height,
+      fixedHeight: true,
+      devicePixelRatio: setup.devicePixelRatio,
+      exportRect: params.skipCrop ? null : params.rect,
+      skipCrop: !!params.skipCrop,
+      action,
+    });
+    if (!begin?.ok) throw new Error(begin?.error || "Stitch setup failed");
+
+    for (let i = 0; i < chunks.length; i += 1) {
+      if (await bailIfCancelled(tabId, originalScrollY)) return "done";
+      if (capture?.detached) {
+        throw new Error("Capture stopped: the debugging bar was dismissed");
+      }
+
+      const dataURL =
+        i === 0
+          ? first
+          : await captureChunk(
+              tabId,
+              chunks[i],
+              setup.width,
+              setup.devicePixelRatio,
+            );
+
+      const slice = await sendToTab(tabId, {
+        type: LassoMsg.STITCH_SLICE,
+        dataURL,
+        y: chunks[i].y,
+        pageHeight: setup.contentHeight,
+      });
+      if (!slice?.ok) throw new Error(slice?.error || "Stitching failed");
+      if (slice.full) break;
+    }
+
+    rendered = true;
+  } finally {
+    // Detaching closes the "started debugging" bar and clears any emulation.
+    await chrome.debugger.detach({ tabId }).catch(() => {});
+  }
+
+  if (!rendered) return "done";
+
+  if (await bailIfCancelled(tabId, originalScrollY)) return "done";
+
+  await sendToTab(tabId, { type: LassoMsg.SCROLL_TO, y: originalScrollY });
+
+  const fin = await sendToTab(tabId, { type: LassoMsg.STITCH_FINALIZE });
+  if (!fin?.ok) throw new Error(fin?.error || "Stitch export failed");
+  return "done";
 }
 
 async function captureFullPage(tab, params, action, originalScrollY) {

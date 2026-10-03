@@ -335,3 +335,143 @@ test("establishesContainingBlock reads will-change hints", () => {
     false,
   );
 });
+
+test("stitchCanvasFor skips the growth allowance with a fixed height", () => {
+  assert.equal(
+    geo.stitchCanvasFor(4000, 800, 2, 800, { fixedHeight: true }),
+    8000,
+  );
+});
+
+test("stitchCanvasFor still clamps a fixed height to the max dimension", () => {
+  assert.equal(
+    geo.stitchCanvasFor(40000, 800, 1, 800, { fixedHeight: true }),
+    32767,
+  );
+});
+
+test("treatmentFor hides a fixed element first seen after scrolling", () => {
+  assert.equal(
+    geo.treatmentFor(
+      "fixed",
+      { x: 0, y: 0, width: 1280, height: 64 },
+      1280,
+      800,
+      { seenScrolled: true },
+    ),
+    "hide",
+  );
+});
+
+test("treatmentFor still releases a sticky element seen after scrolling", () => {
+  assert.equal(
+    geo.treatmentFor(
+      "sticky",
+      { x: 0, y: 0, width: 1280, height: 64 },
+      1280,
+      800,
+      { seenScrolled: true },
+    ),
+    "release",
+  );
+});
+
+test("treatmentFor pins a fixed navbar when not seen after scrolling", () => {
+  assert.equal(
+    geo.treatmentFor(
+      "fixed",
+      { x: 0, y: 0, width: 1280, height: 64 },
+      1280,
+      800,
+      { seenScrolled: false },
+    ),
+    "pin",
+  );
+});
+
+function assertWholePixelChunks(chunks, dpr, maxDevicePx) {
+  for (const { y, height } of chunks) {
+    const deviceY = y * dpr;
+    const deviceHeight = height * dpr;
+    assert.ok(Math.abs(deviceY - Math.round(deviceY)) < 1e-6, `y ${y}`);
+    assert.ok(
+      Math.abs(deviceHeight - Math.round(deviceHeight)) < 1e-6,
+      `height ${height}`,
+    );
+    assert.ok(deviceHeight <= maxDevicePx + 1e-6, `height ${height} too tall`);
+  }
+}
+
+test("screenshotChunks splits a page into contiguous chunks at dpr 1", () => {
+  const chunks = geo.screenshotChunks(20000, 1);
+  assert.deepEqual(chunks, [
+    { y: 0, height: 8192 },
+    { y: 8192, height: 8192 },
+    { y: 16384, height: 3616 },
+  ]);
+});
+
+test("screenshotChunks halves the chunk height at dpr 2", () => {
+  const chunks = geo.screenshotChunks(10000, 2);
+  assert.deepEqual(chunks, [
+    { y: 0, height: 4096 },
+    { y: 4096, height: 4096 },
+    { y: 8192, height: 1808 },
+  ]);
+});
+
+test("screenshotChunks returns one chunk for a short page", () => {
+  assert.deepEqual(geo.screenshotChunks(900, 1), [{ y: 0, height: 900 }]);
+});
+
+for (const dpr of [1, 1.25, 1.5, 1.75, 2]) {
+  test(`screenshotChunks keeps whole device pixels at dpr ${dpr}`, () => {
+    const chunks = geo.screenshotChunks(23456, dpr);
+    assertWholePixelChunks(chunks, dpr, 8192);
+
+    for (let i = 1; i < chunks.length; i += 1) {
+      assert.equal(chunks[i].y, chunks[i - 1].y + chunks[i - 1].height);
+    }
+    const last = chunks[chunks.length - 1];
+    assert.ok(last.y + last.height >= 23456);
+    assert.ok(last.y + last.height < 23456 + 4);
+  });
+}
+
+test("screenshotChunks uses 4px steps at dpr 1.25", () => {
+  const [first] = geo.screenshotChunks(10000, 1.25);
+  assert.equal(first.height % 4, 0);
+  assert.equal(first.height, 6552);
+});
+
+test("screenshotChunks caps the total at the canvas limits", () => {
+  const chunks = geo.screenshotChunks(100000, 1, 8192, 800);
+  const last = chunks[chunks.length - 1];
+  assert.ok(last.y + last.height <= 32767);
+  assert.ok(last.y + last.height > 32000);
+});
+
+test("screenshotChunks caps the total by canvas area on wide pages", () => {
+  const chunks = geo.screenshotChunks(30000, 1, 8192, 16384);
+  const last = chunks[chunks.length - 1];
+  assert.equal(last.y + last.height, 16384);
+});
+
+test("screenshotChunks returns nothing for an empty page", () => {
+  assert.deepEqual(geo.screenshotChunks(0, 1), []);
+});
+
+test("viewportSizedIndices finds elements that grew with the viewport", () => {
+  assert.deepEqual(
+    geo.viewportSizedIndices([800, 64, 400], [900, 64, 450], 100),
+    [0, 2],
+  );
+});
+
+test("viewportSizedIndices ignores reflow larger than the viewport change", () => {
+  assert.deepEqual(geo.viewportSizedIndices([300], [700], 100), []);
+});
+
+test("viewportSizedIndices ignores unmeasurable entries", () => {
+  assert.deepEqual(geo.viewportSizedIndices([null, 800], [900, 900], 100), [1]);
+});
