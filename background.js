@@ -447,7 +447,7 @@ function cdp(tabId, method, params) {
 // 32 base64 characters cover the first 24 bytes: signature, length, type, size.
 function pngSize(base64) {
   const bytes = atob(base64.slice(0, 32));
-  if (!bytes.startsWith("\x89PNG")) return null;
+  if (bytes.length < 24 || !bytes.startsWith("\x89PNG")) return null;
   const u32 = (offset) =>
     ((bytes.charCodeAt(offset) << 24) |
       (bytes.charCodeAt(offset + 1) << 16) |
@@ -466,11 +466,18 @@ async function captureChunk(tabId, chunk, width, dpr) {
   });
 
   // The stitch places slices by arithmetic, so a render at any other scale
-  // would land misaligned rather than fail.
+  // would land misaligned rather than fail. The CSS width is not a whole
+  // number of device pixels at fractional DPR and Chrome may round it either
+  // way. The canvas takes its width from the image, so one pixel of drift is
+  // harmless there; chunk heights are whole by construction and must match.
   const size = pngSize(data);
   const expectedWidth = Math.round(width * dpr);
   const expectedHeight = Math.round(chunk.height * dpr);
-  if (size?.width !== expectedWidth || size?.height !== expectedHeight) {
+  if (
+    !size ||
+    Math.abs(size.width - expectedWidth) > 1 ||
+    size.height !== expectedHeight
+  ) {
     throw new Error(
       `Unexpected render size ${size?.width}x${size?.height}, wanted ${expectedWidth}x${expectedHeight}`,
     );
@@ -485,6 +492,10 @@ async function prepareDebuggerRender(tabId, originalScrollY) {
   await prepareTabForCapture(tabId);
   const dims = await sendToTab(tabId, { type: LassoMsg.PRELOAD_PAGE });
   if (!dims) throw new Error("Page preload failed");
+  if (dims.aborted) {
+    await abortCapture(tabId, originalScrollY);
+    return null;
+  }
   if (await bailIfCancelled(tabId, originalScrollY)) return null;
 
   const pin = await sendToTab(tabId, { type: LassoMsg.PIN_FIXED_ELEMENTS });

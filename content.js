@@ -103,32 +103,44 @@
 
   // Nothing scrolls during a one-pass render, so lazy content has to be asked
   // for first: walk the page one viewport at a time, then let images decode.
+  // The page always ends back at the top, and a cancel comes back as `aborted`
+  // so the caller stops instead of pinning at a scrolled position.
   async function preloadPage() {
     const scrollDeadline = performance.now() + PRELOAD_SCROLL_BUDGET_MS;
     const step = Math.max(1, window.innerHeight);
+    let aborted = false;
 
-    for (
-      let y = step;
-      y <= maxScrollY() && performance.now() < scrollDeadline;
-      y += step
-    ) {
-      if (captureAborted()) return pageDimensions();
-      window.scrollTo({ left: window.scrollX, top: y, behavior: "instant" });
-      await nextAnimationFrame();
-      await nextAnimationFrame();
+    try {
+      for (
+        let y = step;
+        y <= maxScrollY() && performance.now() < scrollDeadline;
+        y += step
+      ) {
+        if (captureAborted()) {
+          aborted = true;
+          break;
+        }
+        window.scrollTo({ left: window.scrollX, top: y, behavior: "instant" });
+        await nextAnimationFrame();
+        await nextAnimationFrame();
+      }
+
+      if (!aborted) {
+        const pending = Array.from(document.images)
+          .filter((img) => !img.complete)
+          .map((img) => img.decode().catch(() => {}));
+        const fonts = document.fonts?.ready ?? Promise.resolve();
+        await Promise.race([
+          Promise.all([...pending, fonts.catch(() => {})]),
+          wait(PRELOAD_DECODE_BUDGET_MS),
+        ]);
+        aborted = captureAborted();
+      }
+    } finally {
+      await scrollToPosition({ y: 0 });
     }
 
-    const pending = Array.from(document.images)
-      .filter((img) => !img.complete)
-      .map((img) => img.decode().catch(() => {}));
-    const fonts = document.fonts?.ready ?? Promise.resolve();
-    await Promise.race([
-      Promise.all([...pending, fonts.catch(() => {})]),
-      wait(PRELOAD_DECODE_BUDGET_MS),
-    ]);
-
-    await scrollToPosition({ y: 0 });
-    return pageDimensions();
+    return { ...pageDimensions(), aborted };
   }
 
   window.LassoCapture.init({
